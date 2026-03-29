@@ -273,3 +273,11 @@ func (dynv6 *Dynv6) request(method string, url string, data interface{}, result 
 	err = util.GetHTTPResponse(resp, err, result)
 	return err
 }
+
+// DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
+func (dyn *Dynv6) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
+	panic("Dynv6 provider does not support delete operation yet for alias aggregation feature. " +
+		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
+		"or implement the delete operation for Dynv6 provider. " +
+		"Refer to dns/alidns.go for implementation example.")
+}

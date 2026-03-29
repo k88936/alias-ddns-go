@@ -229,3 +229,11 @@ func (s *Spaceship) updateRecord(recordType string, ip string, domain *config.Do
 	hasUpdated = true
 	return
 }
+
+// DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
+func (spa *Spaceship) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
+	panic("Spaceship provider does not support delete operation yet for alias aggregation feature. " +
+		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
+		"or implement the delete operation for Spaceship provider. " +
+		"Refer to dns/alidns.go for implementation example.")
+}

@@ -13,7 +13,6 @@ const (
 	alidnsEndpoint string = "https://alidns.aliyuncs.com/"
 )
 
-// https://help.aliyun.com/document_detail/29776.html?spm=a2c4g.11186623.6.672.715a45caji9dMA
 // Alidns Alidns
 type Alidns struct {
 	DNS        config.DNS
@@ -66,15 +65,24 @@ func (ali *Alidns) AddUpdateDomainRecords() config.Domains {
 }
 
 func (ali *Alidns) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := ali.Domains.GetNewIpResult(recordType)
 
-	if ipAddr == "" {
-		return
+	// 获取IP地址列表
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = ali.Domains.Ipv4Addrs
+		domains = ali.Domains.Ipv4Domains
+	} else {
+		ipAddrs = ali.Domains.Ipv6Addrs
+		domains = ali.Domains.Ipv6Domains
 	}
 
 	for _, domain := range domains {
+		// 别名模式：智能更新 - 最小化变更，避免服务中断
+		util.Log("别名模式：智能更新域名 %s 的 %s 记录", domain, recordType)
+
+		// 步骤1：获取当前所有记录
 		var records AlidnsSubDomainRecords
-		// 获取当前域名信息
 		params := domain.GetCustomParams()
 		params.Set("Action", "DescribeSubDomainRecords")
 		params.Set("DomainName", domain.DomainName)
@@ -85,26 +93,67 @@ func (ali *Alidns) addUpdateDomainRecords(recordType string) {
 		if err != nil {
 			util.Log("查询域名信息发生异常! %s", err)
 			domain.UpdateStatus = config.UpdatedFailed
-			return
+			continue
 		}
 
-		if records.TotalCount > 0 {
-			// 默认第一个
-			recordSelected := records.DomainRecords.Record[0]
-			if params.Has("RecordId") {
-				for i := 0; i < len(records.DomainRecords.Record); i++ {
-					if records.DomainRecords.Record[i].RecordID == params.Get("RecordId") {
-						recordSelected = records.DomainRecords.Record[i]
-					}
-				}
+		// 步骤2：构建当前IP集合和期望IP集合
+		currentIPs := make(map[string]string) // map[IP]RecordID
+		for _, record := range records.DomainRecords.Record {
+			currentIPs[record.Value] = record.RecordID
+			util.Log("current value: %s", record.Value)
+		}
+
+		// 步骤3：使用工具函数比较DNS记录
+		compareResult := util.CompareDNSRecords(currentIPs, ipAddrs)
+
+		// Log deletion plans
+		for _, recordID := range compareResult.ToDelete {
+			util.Log("  将删除多余记录: %s (RecordID: %s)", currentIPs[recordID], recordID)
+		}
+
+		// Log creation plans
+		for _, ip := range compareResult.ToCreate {
+			util.Log("  将创建新记录: %s", ip)
+		}
+
+		createdCount := 0
+		for _, ip := range compareResult.ToCreate {
+			ali.create(domain, recordType, ip)
+			if domain.UpdateStatus == config.UpdatedSuccess {
+				createdCount++
 			}
-			// 存在，更新
-			ali.modify(recordSelected, domain, recordType, ipAddr)
-		} else {
-			// 不存在，创建
-			ali.create(domain, recordType, ipAddr)
 		}
 
+		deletedCount := 0
+		for _, recordID := range compareResult.ToDelete {
+			if err := ali.DeleteDomainRecord(recordID); err != nil {
+				util.Log("删除记录失败，继续处理")
+			} else {
+				deletedCount++
+			}
+		}
+
+		// 步骤6：计算保持不变的记录数
+		unchangedCount := 0
+		for ip := range compareResult.DesiredIPs {
+			if _, exists := currentIPs[ip]; exists {
+				unchangedCount++
+			}
+		}
+
+		// 总结更新结果
+		if len(compareResult.ToDelete) == 0 && len(compareResult.ToCreate) == 0 {
+			util.Log("域名 %s 的所有记录均无变化", domain)
+			domain.UpdateStatus = config.UpdatedNothing
+		} else {
+			util.Log("域名 %s 更新完成: 保持 %d 条, 新增 %d 条, 删除 %d 条",
+				domain, unchangedCount, createdCount, deletedCount)
+			if createdCount > 0 || deletedCount > 0 {
+				domain.UpdateStatus = config.UpdatedSuccess
+			} else {
+				domain.UpdateStatus = config.UpdatedFailed
+			}
+		}
 	}
 }
 
@@ -136,39 +185,22 @@ func (ali *Alidns) create(domain *config.Domain, recordType string, ipAddr strin
 	}
 }
 
-// 修改
-func (ali *Alidns) modify(recordSelected AlidnsRecord, domain *config.Domain, recordType string, ipAddr string) {
-
-	// 相同不修改
-	if recordSelected.Value == ipAddr {
-		util.Log("你的IP %s 没有变化, 域名 %s", ipAddr, domain)
-		return
-	}
-
-	params := domain.GetCustomParams()
-	params.Set("Action", "UpdateDomainRecord")
-	params.Set("RR", domain.GetSubDomain())
-	params.Set("RecordId", recordSelected.RecordID)
-	params.Set("Type", recordType)
-	params.Set("Value", ipAddr)
-	params.Set("TTL", ali.TTL)
+// DeleteDomainRecord 删除单条域名记录 https://help.aliyun.com/document_detail/29776.html?spm=a2c4g.11186623.6.672.715a45caji9dMA
+func (ali *Alidns) DeleteDomainRecord(recordID string) error {
+	params := url.Values{}
+	params.Set("Action", "DeleteDomainRecord")
+	params.Set("RecordId", recordID)
 
 	var result AlidnsResp
 	err := ali.request(params, &result)
 
 	if err != nil {
-		util.Log("更新域名解析 %s 失败! 异常信息: %s", domain, err)
-		domain.UpdateStatus = config.UpdatedFailed
-		return
+		util.Log("删除域名记录失败! RecordId: %s, 异常信息: %s", recordID, err)
+		return err
 	}
 
-	if result.RecordID != "" {
-		util.Log("更新域名解析 %s 成功! IP: %s", domain, ipAddr)
-		domain.UpdateStatus = config.UpdatedSuccess
-	} else {
-		util.Log("更新域名解析 %s 失败! 异常信息: %s", domain, "返回RecordId为空")
-		domain.UpdateStatus = config.UpdatedFailed
-	}
+	util.Log("成功删除记录ID: %s", recordID)
+	return nil
 }
 
 // request 统一请求接口

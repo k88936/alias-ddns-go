@@ -185,3 +185,11 @@ func (n *NameCom) request(action string, url string, data any, result any) (err 
 
 	return
 }
+
+// DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
+func (nam *NameCom) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
+	panic("NameCom provider does not support delete operation yet for alias aggregation feature. " +
+		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
+		"or implement the delete operation for NameCom provider. " +
+		"Refer to dns/alidns.go for implementation example.")
+}

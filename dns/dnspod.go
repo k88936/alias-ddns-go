@@ -208,3 +208,11 @@ func (dnspod *Dnspod) getRecordList(domain *config.Domain, typ string) (result D
 
 	return
 }
+
+// DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
+func (dns *Dnspod) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
+	panic("Dnspod provider does not support delete operation yet for alias aggregation feature. " +
+		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
+		"or implement the delete operation for Dnspod provider. " +
+		"Refer to dns/alidns.go for implementation example.")
+}

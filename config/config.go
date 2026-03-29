@@ -29,21 +29,13 @@ type DnsConfig struct {
 	Name string
 	Ipv4 struct {
 		Enable bool
-		// 获取IP类型 url/netInterface
-		GetType      string
-		URL          string
-		NetInterface string
-		Cmd          string
+		// ONLY PROVIDE ALIAS remove others and other related logic
+		AliasSources []string // 别名源域名列表，用于聚合多个域名的IP
 		Domains      []string
 	}
 	Ipv6 struct {
-		Enable bool
-		// 获取IP类型 url/netInterface
-		GetType      string
-		URL          string
-		NetInterface string
-		Cmd          string
-		Ipv6Reg      string // ipv6匹配正则表达式
+		Enable       bool
+		AliasSources []string // 别名源域名列表，用于聚合多个域名的IP
 		Domains      []string
 	}
 	DNS DNS
@@ -313,22 +305,46 @@ func (conf *DnsConfig) getAddrFromCmd(addrType string) string {
 	return result
 }
 
-// GetIpv4Addr 获得IPv4地址
+// symotion-prefix) GetIpv4Addr 获得IPv4地址（单个，用于向后兼容）
 func (conf *DnsConfig) GetIpv4Addr() string {
+	addrs := conf.GetIpv4Addrs()
+	if len(addrs) > 0 {
+		return addrs[0]
+	}
+	return ""
+}
+
+// GetIpv4Addrs 获得IPv4地址列表（支持别名聚合）
+func (conf *DnsConfig) GetIpv4Addrs() []string {
 	// 判断从哪里获取IP
 	switch conf.Ipv4.GetType {
 	case "netInterface":
 		// 从网卡获取 IP
-		return conf.getIpv4AddrFromInterface()
+		addr := conf.getIpv4AddrFromInterface()
+		if addr != "" {
+			return []string{addr}
+		}
+		return nil
 	case "url":
 		// 从 URL 获取 IP
-		return conf.getIpv4AddrFromUrl()
+		addr := conf.getIpv4AddrFromUrl()
+		if addr != "" {
+			return []string{addr}
+		}
+		return nil
 	case "cmd":
 		// 从命令行获取 IP
-		return conf.getAddrFromCmd("IPv4")
+		addr := conf.getAddrFromCmd("IPv4")
+		if addr != "" {
+			return []string{addr}
+		}
+		return nil
+	case "alias":
+		// 从别名源域名聚合IP
+		return conf.getIpv4AddrsFromAlias()
 	default:
 		log.Println("IPv4's get IP method is unknown")
-		return "" // unknown type
+		return nil // unknown type
 	}
 }
 
@@ -404,23 +420,81 @@ func (conf *DnsConfig) getIpv6AddrFromUrl() string {
 	return ""
 }
 
-// GetIpv6Addr 获得IPv6地址
+// GetIpv6Addr 获得IPv6地址（单个，用于向后兼容）
 func (conf *DnsConfig) GetIpv6Addr() (result string) {
+	addrs := conf.GetIpv6Addrs()
+	if len(addrs) > 0 {
+		return addrs[0]
+	}
+	return ""
+}
+
+// GetIpv6Addrs 获得IPv6地址列表（支持别名聚合）
+func (conf *DnsConfig) GetIpv6Addrs() []string {
 	// 判断从哪里获取IP
 	switch conf.Ipv6.GetType {
 	case "netInterface":
 		// 从网卡获取 IP
-		return conf.getIpv6AddrFromInterface()
+		addr := conf.getIpv6AddrFromInterface()
+		if addr != "" {
+			return []string{addr}
+		}
+		return nil
 	case "url":
 		// 从 URL 获取 IP
-		return conf.getIpv6AddrFromUrl()
+		addr := conf.getIpv6AddrFromUrl()
+		if addr != "" {
+			return []string{addr}
+		}
+		return nil
 	case "cmd":
 		// 从命令行获取 IP
-		return conf.getAddrFromCmd("IPv6")
+		addr := conf.getAddrFromCmd("IPv6")
+		if addr != "" {
+			return []string{addr}
+		}
+		return nil
+	case "alias":
+		// 从别名源域名聚合IP
+		return conf.getIpv6AddrsFromAlias()
 	default:
 		log.Println("IPv6's get IP method is unknown")
-		return "" // unknown type
+		return nil // unknown type
 	}
+}
+
+// getIpv4AddrsFromAlias 从别名源域名获取IPv4地址列表
+func (conf *DnsConfig) getIpv4AddrsFromAlias() []string {
+	if len(conf.Ipv4.AliasSources) == 0 {
+		util.Log("别名模式下未配置源域名列表")
+		return nil
+	}
+
+	util.Log("别名模式: 开始聚合 %d 个源域名的IPv4地址", len(conf.Ipv4.AliasSources))
+	addrs, err := util.ResolveAliasSourceIPs(conf.Ipv4.AliasSources, "ipv4")
+	if err != nil {
+		util.Log("别名聚合失败: %v", err)
+		return nil
+	}
+
+	return addrs
+}
+
+// getIpv6AddrsFromAlias 从别名源域名获取IPv6地址列表
+func (conf *DnsConfig) getIpv6AddrsFromAlias() []string {
+	if len(conf.Ipv6.AliasSources) == 0 {
+		util.Log("别名模式下未配置源域名列表")
+		return nil
+	}
+
+	util.Log("别名模式: 开始聚合 %d 个源域名的IPv6地址", len(conf.Ipv6.AliasSources))
+	addrs, err := util.ResolveAliasSourceIPs(conf.Ipv6.AliasSources, "ipv6")
+	if err != nil {
+		util.Log("别名聚合失败: %v", err)
+		return nil
+	}
+
+	return addrs
 }
 
 // GetHTTPClient 获得HTTP客户端，如果配置了HttpInterface则绑定到指定网卡

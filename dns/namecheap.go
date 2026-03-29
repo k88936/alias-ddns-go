@@ -133,3 +133,11 @@ func (nc *NameCheap) request(result *NameCheapResp, ipAddr string, domain *confi
 
 	return
 }
+
+// DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
+func (nam *NameCheap) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
+	panic("NameCheap provider does not support delete operation yet for alias aggregation feature. " +
+		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
+		"or implement the delete operation for NameCheap provider. " +
+		"Refer to dns/alidns.go for implementation example.")
+}

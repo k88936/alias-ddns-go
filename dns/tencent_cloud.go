@@ -248,3 +248,11 @@ func (tc *TencentCloud) request(action string, data interface{}, result interfac
 
 	return
 }
+
+// DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
+func (ten *TencentCloud) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
+	panic("TencentCloud provider does not support delete operation yet for alias aggregation feature. " +
+		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
+		"or implement the delete operation for TencentCloud provider. " +
+		"Refer to dns/alidns.go for implementation example.")
+}

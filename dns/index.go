@@ -9,8 +9,9 @@ import (
 
 // DNS interface
 type DNS interface {
+	// Init initialize and get new ip
 	Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache)
-	// 添加或更新IPv4/IPv6记录
+	// AddUpdateDomainRecords 添加或更新IPv4/IPv6记录
 	AddUpdateDomainRecords() (domains config.Domains)
 }
 

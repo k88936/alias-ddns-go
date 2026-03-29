@@ -206,3 +206,11 @@ func (baidu *BaiduCloud) request(method string, url string, data interface{}, re
 
 	return
 }
+
+// DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
+func (bai *BaiduCloud) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
+	panic("BaiduCloud provider does not support delete operation yet for alias aggregation feature. " +
+		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
+		"or implement the delete operation for BaiduCloud provider. " +
+		"Refer to dns/alidns.go for implementation example.")
+}

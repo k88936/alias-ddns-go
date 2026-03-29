@@ -11,10 +11,12 @@ import (
 
 // Domains Ipv4/Ipv6 domains
 type Domains struct {
-	Ipv4Addr    string
+	Ipv4Addr    string   // Deprecated: 单个IPv4地址，保留用于向后兼容
+	Ipv4Addrs   []string // 多个IPv4地址列表
 	Ipv4Cache   *util.IpCache
 	Ipv4Domains []*Domain
-	Ipv6Addr    string
+	Ipv6Addr    string   // Deprecated: 单个IPv6地址，保留用于向后兼容
+	Ipv6Addrs   []string // 多个IPv6地址列表
 	Ipv6Cache   *util.IpCache
 	Ipv6Domains []*Domain
 }
@@ -105,9 +107,10 @@ func (domains *Domains) GetNewIp(dnsConf *DnsConfig) {
 
 	// IPv4
 	if dnsConf.Ipv4.Enable && len(domains.Ipv4Domains) > 0 {
-		ipv4Addr := dnsConf.GetIpv4Addr()
-		if ipv4Addr != "" {
-			domains.Ipv4Addr = ipv4Addr
+		ipv4Addrs := dnsConf.GetIpv4Addrs()
+		if len(ipv4Addrs) > 0 {
+			domains.Ipv4Addrs = ipv4Addrs
+			domains.Ipv4Addr = ipv4Addrs[0] // 向后兼容：使用第一个IP
 			domains.Ipv4Cache.TimesFailedIP = 0
 		} else {
 			// 启用IPv4 & 未获取到IP & 填写了域名 & 失败刚好3次，防止偶尔的网络连接失败，并且只发一次
@@ -121,9 +124,10 @@ func (domains *Domains) GetNewIp(dnsConf *DnsConfig) {
 
 	// IPv6
 	if dnsConf.Ipv6.Enable && len(domains.Ipv6Domains) > 0 {
-		ipv6Addr := dnsConf.GetIpv6Addr()
-		if ipv6Addr != "" {
-			domains.Ipv6Addr = ipv6Addr
+		ipv6Addrs := dnsConf.GetIpv6Addrs()
+		if len(ipv6Addrs) > 0 {
+			domains.Ipv6Addrs = ipv6Addrs
+			domains.Ipv6Addr = ipv6Addrs[0] // 向后兼容：使用第一个IP
 			domains.Ipv6Cache.TimesFailedIP = 0
 		} else {
 			// 启用IPv6 & 未获取到IP & 填写了域名 & 失败刚好3次，防止偶尔的网络连接失败，并且只发一次

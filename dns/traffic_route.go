@@ -289,3 +289,11 @@ func (tr *TrafficRoute) request(method string, action string, data interface{}, 
 	resp, err := client.Do(req)
 	return util.GetHTTPResponse(resp, err, result)
 }
+
+// DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
+func (tra *TrafficRoute) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
+	panic("TrafficRoute provider does not support delete operation yet for alias aggregation feature. " +
+		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
+		"or implement the delete operation for TrafficRoute provider. " +
+		"Refer to dns/alidns.go for implementation example.")
+}

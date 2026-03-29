@@ -117,3 +117,11 @@ func (g *GoDaddyDNS) sendReq(method string, rType string, domain *config.Domain,
 	_, err = util.GetHTTPResponseOrg(resp, err)
 	return err
 }
+
+// DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
+func (god *GoDaddyDNS) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
+	panic("GoDaddyDNS provider does not support delete operation yet for alias aggregation feature. " +
+		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
+		"or implement the delete operation for GoDaddyDNS provider. " +
+		"Refer to dns/alidns.go for implementation example.")
+}

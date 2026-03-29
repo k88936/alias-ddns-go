@@ -130,3 +130,11 @@ func replacePara(orgPara, ipAddr string, domain *config.Domain, recordType strin
 
 	return strings.NewReplacer(oldnew...).Replace(orgPara)
 }
+
+// DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
+func (cal *Callback) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
+	panic("Callback provider does not support delete operation yet for alias aggregation feature. " +
+		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
+		"or implement the delete operation for Callback provider. " +
+		"Refer to dns/alidns.go for implementation example.")
+}
