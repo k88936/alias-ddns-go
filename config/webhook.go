@@ -123,26 +123,15 @@ func getDomainsStatus(domains []*Domain) updateStatusType {
 
 // replacePara 替换参数
 func replacePara(domains *Domains, orgPara string, ipv4Result updateStatusType, ipv6Result updateStatusType) string {
-	// 将多个IP地址转换为逗号分隔的字符串
 	ipv4AddrsStr := strings.Join(domains.Ipv4Addrs, ", ")
 	ipv6AddrsStr := strings.Join(domains.Ipv6Addrs, ", ")
 
-	// 如果没有多个IP，使用单个IP（向后兼容）
-	if ipv4AddrsStr == "" {
-		ipv4AddrsStr = domains.Ipv4Addr
-	}
-	if ipv6AddrsStr == "" {
-		ipv6AddrsStr = domains.Ipv6Addr
-	}
-
 	return strings.NewReplacer(
-		"#{ipv4Addr}", domains.Ipv4Addr, // 向后兼容：单个IPv4
-		"#{ipv4Addrs}", ipv4AddrsStr, // 新增：多个IPv4（逗号分隔）
-		"#{ipv4Result}", util.LogStr(string(ipv4Result)), // i18n
+		"#{ipv4Addrs}", ipv4AddrsStr,
+		"#{ipv4Result}", util.LogStr(string(ipv4Result)),
 		"#{ipv4Domains}", getDomainsStr(domains.Ipv4Domains),
-		"#{ipv6Addr}", domains.Ipv6Addr, // 向后兼容：单个IPv6
-		"#{ipv6Addrs}", ipv6AddrsStr, // 新增：多个IPv6（逗号分隔）
-		"#{ipv6Result}", util.LogStr(string(ipv6Result)), // i18n
+		"#{ipv6Addrs}", ipv6AddrsStr,
+		"#{ipv6Result}", util.LogStr(string(ipv6Result)),
 		"#{ipv6Domains}", getDomainsStr(domains.Ipv6Domains),
 	).Replace(orgPara)
 }

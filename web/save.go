@@ -88,18 +88,11 @@ func checkAndSave(request *http.Request) string {
 		}
 
 		dnsConf.Ipv4.Enable = v.Ipv4Enable
-		dnsConf.Ipv4.GetType = v.Ipv4GetType
-		dnsConf.Ipv4.URL = strings.TrimSpace(v.Ipv4Url)
-		dnsConf.Ipv4.NetInterface = v.Ipv4NetInterface
-		dnsConf.Ipv4.Cmd = strings.TrimSpace(v.Ipv4Cmd)
+		dnsConf.Ipv4.AliasSources = util.SplitLines(v.Ipv4AliasSources)
 		dnsConf.Ipv4.Domains = util.SplitLines(v.Ipv4Domains)
 
 		dnsConf.Ipv6.Enable = v.Ipv6Enable
-		dnsConf.Ipv6.GetType = v.Ipv6GetType
-		dnsConf.Ipv6.URL = strings.TrimSpace(v.Ipv6Url)
-		dnsConf.Ipv6.NetInterface = v.Ipv6NetInterface
-		dnsConf.Ipv6.Cmd = strings.TrimSpace(v.Ipv6Cmd)
-		dnsConf.Ipv6.Ipv6Reg = strings.TrimSpace(v.Ipv6Reg)
+		dnsConf.Ipv6.AliasSources = util.SplitLines(v.Ipv6AliasSources)
 		dnsConf.Ipv6.Domains = util.SplitLines(v.Ipv6Domains)
 		dnsConf.HttpInterface = strings.TrimSpace(v.HttpInterface)
 

@@ -37,11 +37,9 @@ type Dynv6Record struct {
 }
 
 // Init 初始化
-func (dynv6 *Dynv6) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	dynv6.Domains.Ipv4Cache = ipv4cache
-	dynv6.Domains.Ipv6Cache = ipv6cache
+func (dynv6 *Dynv6) Init(dnsConf *config.DnsConfig, _ *util.IpCache, _ *util.IpCache) {
 	dynv6.DNS = dnsConf.DNS
-	dynv6.Domains.GetNewIp(dnsConf)
+	dynv6.Domains.InitFromConfig(dnsConf)
 	if dnsConf.TTL == "" {
 		// 默认600s
 		dynv6.TTL = "600"
@@ -59,13 +57,22 @@ func (dynv6 *Dynv6) AddUpdateDomainRecords() config.Domains {
 }
 
 func (dynv6 *Dynv6) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := dynv6.Domains.GetNewIpResult(recordType)
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = dynv6.Domains.Ipv4Addrs
+		domains = dynv6.Domains.Ipv4Domains
+	} else {
+		ipAddrs = dynv6.Domains.Ipv6Addrs
+		domains = dynv6.Domains.Ipv6Domains
+	}
 
-	if ipAddr == "" {
+	if len(ipAddrs) == 0 {
 		return
 	}
 
 	for _, domain := range domains {
+		ipAddr := ipAddrs[0]
 		isFindZone, findZone, isMain, err := dynv6.findZone(domain)
 
 		if err != nil {
@@ -276,8 +283,5 @@ func (dynv6 *Dynv6) request(method string, url string, data interface{}, result 
 
 // DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
 func (dyn *Dynv6) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
-	panic("Dynv6 provider does not support delete operation yet for alias aggregation feature. " +
-		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
-		"or implement the delete operation for Dynv6 provider. " +
-		"Refer to dns/alidns.go for implementation example.")
+	panic("Dynv6 provider does not support alias mode. Use 'alidns' provider instead.")
 }

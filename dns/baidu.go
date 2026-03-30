@@ -68,13 +68,10 @@ type BaiduCreateRequest struct {
 	ZoneName string `json:"zoneName"`
 }
 
-func (baidu *BaiduCloud) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	baidu.Domains.Ipv4Cache = ipv4cache
-	baidu.Domains.Ipv6Cache = ipv6cache
+func (baidu *BaiduCloud) Init(dnsConf *config.DnsConfig, _ *util.IpCache, _ *util.IpCache) {
 	baidu.DNS = dnsConf.DNS
-	baidu.Domains.GetNewIp(dnsConf)
+	baidu.Domains.InitFromConfig(dnsConf)
 	if dnsConf.TTL == "" {
-		// 默认300s
 		baidu.TTL = 300
 	} else {
 		ttl, err := strconv.Atoi(dnsConf.TTL)
@@ -87,7 +84,6 @@ func (baidu *BaiduCloud) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache
 	baidu.httpClient = dnsConf.GetHTTPClient()
 }
 
-// AddUpdateDomainRecords 添加或更新IPv4/IPv6记录
 func (baidu *BaiduCloud) AddUpdateDomainRecords() config.Domains {
 	baidu.addUpdateDomainRecords("A")
 	baidu.addUpdateDomainRecords("AAAA")
@@ -95,14 +91,23 @@ func (baidu *BaiduCloud) AddUpdateDomainRecords() config.Domains {
 }
 
 func (baidu *BaiduCloud) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := baidu.Domains.GetNewIpResult(recordType)
-	if ipAddr == "" {
-		return
+	// 获取IP地址列表
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = baidu.Domains.Ipv4Addrs
+		domains = baidu.Domains.Ipv4Domains
+	} else {
+		ipAddrs = baidu.Domains.Ipv6Addrs
+		domains = baidu.Domains.Ipv6Domains
 	}
 
 	for _, domain := range domains {
-		var records BaiduRecordsResp
+		// 别名模式：智能更新 - 最小化变更，避免服务中断
+		util.Log("别名模式：智能更新域名 %s 的 %s 记录", domain, recordType)
 
+		// 步骤1：获取当前所有记录
+		var records BaiduRecordsResp
 		requestBody := BaiduListRequest{
 			Domain:   domain.DomainName,
 			PageNum:  1,
@@ -113,26 +118,72 @@ func (baidu *BaiduCloud) addUpdateDomainRecords(recordType string) {
 		if err != nil {
 			util.Log("查询域名信息发生异常! %s", err)
 			domain.UpdateStatus = config.UpdatedFailed
-			return
+			continue
 		}
 
-		find := false
+		// 步骤2：构建当前IP集合和期望IP集合
+		currentIPs := make(map[string]string) // map[IP]RecordID
 		for _, record := range records.Result {
-			if record.Domain == domain.GetSubDomain() {
-				//存在就去更新
-				baidu.modify(record, domain, recordType, ipAddr)
-				find = true
-				break
+			if record.Domain == domain.GetSubDomain() && record.Rdtype == recordType {
+				currentIPs[record.Rdata] = strconv.FormatUint(uint64(record.RecordId), 10)
+				util.Log("current value: %s", record.Rdata)
 			}
 		}
-		if !find {
-			//没找到，去创建
-			baidu.create(domain, recordType, ipAddr)
+
+		// 步骤3：使用工具函数比较DNS记录
+		compareResult := util.CompareDNSRecords(currentIPs, ipAddrs)
+
+		// Log deletion plans
+		for _, recordID := range compareResult.ToDelete {
+			util.Log("  将删除多余记录: %s (RecordID: %s)", currentIPs[recordID], recordID)
+		}
+
+		// Log creation plans
+		for _, ip := range compareResult.ToCreate {
+			util.Log("  将创建新记录: %s", ip)
+		}
+
+		createdCount := 0
+		for _, ip := range compareResult.ToCreate {
+			baidu.create(domain, recordType, ip)
+			if domain.UpdateStatus == config.UpdatedSuccess {
+				createdCount++
+			}
+		}
+
+		deletedCount := 0
+		for _, recordID := range compareResult.ToDelete {
+			if err := baidu.DeleteDomainRecord(recordID); err != nil {
+				util.Log("删除记录失败，继续处理")
+			} else {
+				deletedCount++
+			}
+		}
+
+		// 步骤6：计算保持不变的记录数
+		unchangedCount := 0
+		for ip := range compareResult.DesiredIPs {
+			if _, exists := currentIPs[ip]; exists {
+				unchangedCount++
+			}
+		}
+
+		// 总结更新结果
+		if len(compareResult.ToDelete) == 0 && len(compareResult.ToCreate) == 0 {
+			util.Log("域名 %s 的所有记录均无变化", domain)
+			domain.UpdateStatus = config.UpdatedNothing
+		} else {
+			util.Log("域名 %s 更新完成: 保持 %d 条, 新增 %d 条, 删除 %d 条",
+				domain, unchangedCount, createdCount, deletedCount)
+			if createdCount > 0 || deletedCount > 0 {
+				domain.UpdateStatus = config.UpdatedSuccess
+			} else {
+				domain.UpdateStatus = config.UpdatedFailed
+			}
 		}
 	}
 }
 
-// create 创建新的解析
 func (baidu *BaiduCloud) create(domain *config.Domain, recordType string, ipAddr string) {
 	var baiduCreateRequest = BaiduCreateRequest{
 		Domain:   domain.GetSubDomain(), //处理一下@
@@ -153,32 +204,32 @@ func (baidu *BaiduCloud) create(domain *config.Domain, recordType string, ipAddr
 	}
 }
 
-// modify 更新解析
-func (baidu *BaiduCloud) modify(record BaiduRecord, domain *config.Domain, rdType string, ipAddr string) {
-	//没有变化直接跳过
-	if record.Rdata == ipAddr {
-		util.Log("你的IP %s 没有变化, 域名 %s", ipAddr, domain)
-		return
+// DeleteDomainRecord 删除域名记录
+func (baidu *BaiduCloud) DeleteDomainRecord(recordID string) error {
+	recordIDUint, err := strconv.ParseUint(recordID, 10, 32)
+	if err != nil {
+		util.Log("删除域名记录失败! RecordId: %s, 无效的记录ID: %s", recordID, err)
+		return err
 	}
-	var baiduModifyRequest = BaiduModifyRequest{
-		RecordId: record.RecordId,
-		Domain:   record.Domain,
-		View:     record.View,
-		RdType:   rdType,
-		TTL:      record.TTL,
-		Rdata:    ipAddr,
-		ZoneName: record.ZoneName,
-	}
-	var result BaiduRecordsResp
 
-	err := baidu.request("POST", baiduEndpoint+"/v1/domain/resolve/edit", baiduModifyRequest, &result)
-	if err == nil {
-		util.Log("更新域名解析 %s 成功! IP: %s", domain, ipAddr)
-		domain.UpdateStatus = config.UpdatedSuccess
-	} else {
-		util.Log("更新域名解析 %s 失败! 异常信息: %s", domain, err)
-		domain.UpdateStatus = config.UpdatedFailed
+	// 使用删除API端点 /v1/domain/resolve/delete
+	type BaiduDeleteRequest struct {
+		RecordId uint `json:"recordId"`
 	}
+
+	deleteRequest := BaiduDeleteRequest{
+		RecordId: uint(recordIDUint),
+	}
+
+	var records BaiduRecordsResp
+	err = baidu.request("POST", baiduEndpoint+"/v1/domain/resolve/delete", deleteRequest, &records)
+	if err != nil {
+		util.Log("删除域名记录失败! RecordId: %s, 异常信息: %s", recordID, err)
+		return err
+	}
+
+	util.Log("删除域名记录成功! RecordId: %s", recordID)
+	return nil
 }
 
 // request 统一请求接口
@@ -205,12 +256,4 @@ func (baidu *BaiduCloud) request(method string, url string, data interface{}, re
 	err = util.GetHTTPResponse(resp, err, result)
 
 	return
-}
-
-// DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
-func (bai *BaiduCloud) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
-	panic("BaiduCloud provider does not support delete operation yet for alias aggregation feature. " +
-		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
-		"or implement the delete operation for BaiduCloud provider. " +
-		"Refer to dns/alidns.go for implementation example.")
 }

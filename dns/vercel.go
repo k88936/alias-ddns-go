@@ -38,11 +38,9 @@ type Record struct {
 	Comment   *string `json:"comment,omitempty"`
 }
 
-func (v *Vercel) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	v.Domains.Ipv4Cache = ipv4cache
-	v.Domains.Ipv6Cache = ipv6cache
+func (v *Vercel) Init(dnsConf *config.DnsConfig, _ *util.IpCache, _ *util.IpCache) {
 	v.DNS = dnsConf.DNS
-	v.Domains.GetNewIp(dnsConf)
+	v.Domains.InitFromConfig(dnsConf)
 
 	// Must be greater than 60
 	ttl, err := strconv.Atoi(dnsConf.TTL)
@@ -63,55 +61,104 @@ func (v *Vercel) AddUpdateDomainRecords() (domains config.Domains) {
 }
 
 func (v *Vercel) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := v.Domains.GetNewIpResult(recordType)
-
-	if ipAddr == "" {
-		return
+	// 获取IP地址列表
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = v.Domains.Ipv4Addrs
+		domains = v.Domains.Ipv4Domains
+	} else {
+		ipAddrs = v.Domains.Ipv6Addrs
+		domains = v.Domains.Ipv6Domains
 	}
 
-	ipAddr = strings.ToLower(ipAddr)
-
-	var (
-		records []Record
-		err     error
-	)
 	for _, domain := range domains {
-		records, err = v.listExistingRecords(domain)
+		// 别名模式：智能更新 - 最小化变更，避免服务中断
+		util.Log("别名模式：智能更新域名 %s 的 %s 记录", domain, recordType)
+
+		// 步骤1：获取当前所有记录
+		records, err := v.listExistingRecords(domain)
 		if err != nil {
 			util.Log("查询域名信息发生异常! %s", err)
+			domain.UpdateStatus = config.UpdatedFailed
 			continue
 		}
 
-		var targetRecord *Record
+		// 步骤2：构建当前IP集合 (map[IP]RecordID)
+		currentIPs := make(map[string]string)
 		for _, record := range records {
-			if record.Name == domain.SubDomain {
-				targetRecord = &record
-				break
+			if record.Name == domain.SubDomain && record.Type == recordType {
+				currentIPs[strings.ToLower(record.Value)] = record.ID
+				util.Log("current value: %s", record.Value)
 			}
 		}
 
-		if targetRecord == nil {
-			err = v.createRecord(domain, recordType, ipAddr)
-		} else {
-			if strings.ToLower(targetRecord.Value) == ipAddr {
-				util.Log("你的IP %s 没有变化, 域名 %s", ipAddr, domain)
-				domain.UpdateStatus = config.UpdatedNothing
-				continue
+		// 标准化期望的IP地址为小写
+		normalizedIPAddrs := make([]string, len(ipAddrs))
+		for i, ip := range ipAddrs {
+			normalizedIPAddrs[i] = strings.ToLower(ip)
+		}
+
+		// 步骤3：使用工具函数比较DNS记录
+		compareResult := util.CompareDNSRecords(currentIPs, normalizedIPAddrs)
+
+		// Log deletion plans
+		for _, recordID := range compareResult.ToDelete {
+			for ip, id := range currentIPs {
+				if id == recordID {
+					util.Log("  将删除多余记录: %s (RecordID: %s)", ip, recordID)
+					break
+				}
+			}
+		}
+
+		// Log creation plans
+		for _, ip := range compareResult.ToCreate {
+			util.Log("  将创建新记录: %s", ip)
+		}
+
+		// 步骤4：创建新记录
+		createdCount := 0
+		for _, ip := range compareResult.ToCreate {
+			err := v.createRecord(domain, recordType, ip)
+			if err == nil {
+				util.Log("创建域名解析 %s 成功! IP: %s", domain, ip)
+				createdCount++
 			} else {
-				err = v.updateRecord(targetRecord, recordType, ipAddr)
+				util.Log("创建域名解析 %s 失败! IP: %s, 异常信息: %s", domain, ip, err)
 			}
 		}
 
-		operation := "新增"
-		if targetRecord != nil {
-			operation = "更新"
+		// 步骤5：删除多余记录
+		deletedCount := 0
+		for _, recordID := range compareResult.ToDelete {
+			if err := v.DeleteDomainRecord(recordID); err != nil {
+				util.Log("删除记录失败，继续处理")
+			} else {
+				deletedCount++
+			}
 		}
-		if err == nil {
-			util.Log(operation+"域名解析 %s 成功! IP: %s", domain, ipAddr)
-			domain.UpdateStatus = config.UpdatedSuccess
+
+		// 步骤6：计算保持不变的记录数
+		unchangedCount := 0
+		for ip := range compareResult.DesiredIPs {
+			if _, exists := currentIPs[ip]; exists {
+				unchangedCount++
+			}
+		}
+
+		// 总结更新结果
+		if len(compareResult.ToDelete) == 0 && len(compareResult.ToCreate) == 0 {
+			util.Log("域名 %s 的所有记录均无变化", domain)
+			domain.UpdateStatus = config.UpdatedNothing
 		} else {
-			util.Log(operation+"域名解析 %s 失败! 异常信息: %s", domain, err)
-			domain.UpdateStatus = config.UpdatedFailed
+			util.Log("域名 %s 更新完成: 保持 %d 条, 新增 %d 条, 删除 %d 条",
+				domain, unchangedCount, createdCount, deletedCount)
+			if createdCount > 0 || deletedCount > 0 {
+				domain.UpdateStatus = config.UpdatedSuccess
+			} else {
+				domain.UpdateStatus = config.UpdatedFailed
+			}
 		}
 	}
 }
@@ -184,6 +231,17 @@ func (v *Vercel) request(method, api string, data, result interface{}) (err erro
 		err = util.GetHTTPResponse(resp, err, result)
 	}
 	return
+}
+
+// DeleteDomainRecord 删除单条DNS记录
+func (v *Vercel) DeleteDomainRecord(recordID string) error {
+	err := v.request(http.MethodDelete, "https://api.vercel.com/v2/domains/records/"+recordID, nil, nil)
+	if err != nil {
+		util.Log("删除记录 %s 失败: %s", recordID, err)
+		return err
+	}
+	util.Log("删除记录 %s 成功", recordID)
+	return nil
 }
 
 // DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）

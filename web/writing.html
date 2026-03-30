@@ -136,141 +136,67 @@
             </div>
           </div>
 
-          <div class="portlet">
-            <h5 class="portlet__head">IPv4</h5>
-            <div class="portlet__body">
-              <div class="form-group row">
-                <label data-i18n="Enabled" for="Ipv4Enable" class="col-sm-2">Enabled</label>
-                <div class="col-sm-10">
-                  <input type="checkbox" class="form-check-inline" style="margin-top: 5px" id="Ipv4Enable"
-                    name="Ipv4Enable" checked />
-                </div>
-              </div>
+<div class="portlet">
+		<h5 class="portlet__head">IPv4</h5>
+		<div class="portlet__body">
+			<div class="form-group row">
+				<label data-i18n="Enabled" for="Ipv4Enable" class="col-sm-2">Enabled</label>
+				<div class="col-sm-10">
+					<input type="checkbox" class="form-check-inline" style="margin-top: 5px" id="Ipv4Enable"
+						name="Ipv4Enable" checked />
+				</div>
+			</div>
 
-              <div class="form-group row">
-                <label data-i18n="Get IP method" for="Ipv4Url" class="col-sm-2 col-form-label">
-                  Get IP method
-                </label>
-                <div class="col-sm-10">
-                  <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="Ipv4GetType" id="urlRadioIpv4" value="url"
-                      checked />
-                    <label data-i18n="By api" class="form-check-label" for="urlRadioIpv4">By api</label>
-                  </div>
-                  <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="Ipv4GetType" id="netInterfaceRadioIpv4"
-                      value="netInterface" />
-                    <label data-i18n="By network card" class="form-check-label" for="netInterfaceRadioIpv4">By network
-                      card</label>
-                  </div>
-                  <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="Ipv4GetType" id="cmdRadioIpv4" value="cmd" />
-                    <label data-i18n="By command" class="form-check-label" for="cmdRadioIpv4">By command</label>
-                  </div>
-                  <input type="url" class="form-control form" name="Ipv4Url" id="Ipv4Url" aria-describedby="Ipv4UrlHelp"
-                    data-visible="url" />
-                  <select class="form-control" id="Ipv4NetInterface" name="Ipv4NetInterface"
-                    aria-describedby="Ipv4NetInterfaceHelp" data-visible="netInterface">
-                    {{range .Ipv4}}
-                    <option value="{{.Name}}">
-                      {{.Name}}{{.Address}}
-                    </option>
-                    {{end}}
-                  </select>
-                  <input type="text" class="form-control form" id="Ipv4Cmd" name="Ipv4Cmd"
-                    aria-describedby="Ipv4CmdHelp" data-visible="cmd" />
-                  <small data-i18n-html="Ipv4UrlHelp" id="Ipv4UrlHelp" class="form-text text-muted"
-                    data-visible="url"></small>
-                  <small {{if len .Ipv4}} data-i18n-html="Ipv4NetInterfaceHelp" {{else}}
-                    data-i18n-html="NetInterfaceEmptyHelp" {{end}} id="Ipv4NetInterfaceHelp"
-                    class="form-text text-muted" data-visible="netInterface"></small>
-                  <small data-i18n-html="Ipv4CmdHelp" id="Ipv4CmdHelp" class="form-text text-muted"
-                    data-visible="cmd"></small>
-                </div>
-              </div>
+			<div class="form-group row">
+				<label for="Ipv4AliasSources" class="col-sm-2 col-form-label">Alias Sources</label>
+				<div class="col-sm-10">
+					<textarea class="form-control form" id="Ipv4AliasSources" name="Ipv4AliasSources" rows="3"
+						aria-describedby="ipv4AliasSourcesHelp"></textarea>
+					<small class="form-text text-muted">Source domains to aggregate IPs from (one per line)</small>
+				</div>
+			</div>
 
-              <div class="form-group row">
-                <label for="Ipv4Domains" class="col-sm-2 col-form-label">Domains</label>
-                <div class="col-sm-10">
-                  <textarea class="form-control form" id="Ipv4Domains" name="Ipv4Domains" rows="3"
-                    aria-describedby="ipv4DomainsHelp"></textarea>
-                  <small data-i18n-html="domainsHelp" id="ipv4DomainsHelp" class="form-text text-muted"></small>
-                </div>
-              </div>
-            </div>
-          </div>
+			<div class="form-group row">
+				<label for="Ipv4Domains" class="col-sm-2 col-form-label">Domains</label>
+				<div class="col-sm-10">
+					<textarea class="form-control form" id="Ipv4Domains" name="Ipv4Domains" rows="3"
+						aria-describedby="ipv4DomainsHelp"></textarea>
+					<small data-i18n-html="domainsHelp" id="ipv4DomainsHelp" class="form-text text-muted"></small>
+				</div>
+			</div>
+		</div>
+	</div>
 
-          <div class="portlet">
-            <h5 class="portlet__head">IPv6</h5>
-            <div class="portlet__body">
-              <div class="form-group row">
-                <label data-i18n="Enabled" for="Ipv6Enable" class="col-sm-2">Enabled</label>
-                <div class="col-sm-10">
-                  <input type="checkbox" class="form-check-inline" style="margin-top: 5px" id="Ipv6Enable"
-                    name="Ipv6Enable" checked />
-                </div>
-              </div>
+	<div class="portlet">
+		<h5 class="portlet__head">IPv6</h5>
+		<div class="portlet__body">
+			<div class="form-group row">
+				<label data-i18n="Enabled" for="Ipv6Enable" class="col-sm-2">Enabled</label>
+				<div class="col-sm-10">
+					<input type="checkbox" class="form-check-inline" style="margin-top: 5px" id="Ipv6Enable"
+						name="Ipv6Enable" checked />
+				</div>
+			</div>
 
-              <div class="form-group row">
-                <label data-i18n="Get IP method" for="Ipv6Url" class="col-sm-2 col-form-label">
-                  Get IP method
-                </label>
-                <div class="col-sm-10">
-                  <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="Ipv6GetType" id="urlRadioIpv6" value="url"
-                      checked />
-                    <label data-i18n="By api" class="form-check-label" for="urlRadioIpv6">By api</label>
-                  </div>
-                  <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="Ipv6GetType" id="netInterfaceRadioIpv6"
-                      value="netInterface" />
-                    <label data-i18n="By network card" class="form-check-label" for="netInterfaceRadioIpv6">By network
-                      card</label>
-                  </div>
-                  <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="Ipv6GetType" id="cmdRadioIpv6" value="cmd" />
-                    <label data-i18n="By command" class="form-check-label" for="cmdRadioIpv6">By command</label>
-                  </div>
-                  <input type="url" class="form-control form" id="Ipv6Url" name="Ipv6Url" aria-describedby="Ipv6UrlHelp"
-                    data-visible="url" />
-                  <select class="form-control" id="Ipv6NetInterface" name="Ipv6NetInterface"
-                    aria-describedby="Ipv6NetInterfaceHelp" data-visible="netInterface">
-                    {{range .Ipv6}}
-                    <option value="{{.Name}}">
-                      {{.Name}}{{.Address}}
-                    </option>
-                    {{end}}
-                  </select>
-                  <input type="text" class="form-control form" id="Ipv6Cmd" name="Ipv6Cmd"
-                    aria-describedby="Ipv6CmdHelp" data-visible="cmd" />
-                  <small data-i18n-html="Ipv6UrlHelp" id="Ipv6UrlHelp" class="form-text text-muted"
-                    data-visible="url"></small>
-                  <small {{if len .Ipv6}} data-i18n-html="Ipv6NetInterfaceHelp" {{else}}
-                    data-i18n-html="NetInterfaceEmptyHelp" {{end}} id="Ipv6NetInterfaceHelp"
-                    class="form-text text-muted" data-visible="netInterface"></small>
-                  <small data-i18n-html="Ipv6CmdHelp" id="Ipv6CmdHelp" class="form-text text-muted"
-                    data-visible="cmd"></small>
-                </div>
-              </div>
+			<div class="form-group row">
+				<label for="Ipv6AliasSources" class="col-sm-2 col-form-label">Alias Sources</label>
+				<div class="col-sm-10">
+					<textarea class="form-control form" id="Ipv6AliasSources" name="Ipv6AliasSources" rows="3"
+						aria-describedby="ipv6AliasSourcesHelp"></textarea>
+					<small class="form-text text-muted">Source domains to aggregate IPs from (one per line)</small>
+				</div>
+			</div>
 
-              <div class="form-group row" id="Ipv6RegDiv" data-visible="netInterface" style="display: none">
-                <label data-i18n="Regular exp." for="Ipv6Reg" class="col-sm-2 col-form-label">Regular exp.</label>
-                <div class="col-sm-10">
-                  <input class="form-control form" name="Ipv6Reg" id="Ipv6Reg" aria-describedby="Ipv6RegHelp" />
-                  <small data-i18n-html="regHelp" id="Ipv6RegHelp" class="form-text text-muted"></small>
-                </div>
-              </div>
-
-              <div class="form-group row">
-                <label for="Ipv6Domains" class="col-sm-2 col-form-label">Domains</label>
-                <div class="col-sm-10">
-                  <textarea class="form-control form" id="Ipv6Domains" name="Ipv6Domains" rows="3"
-                    aria-describedby="ipv6_domainsHelp"></textarea>
-                  <small data-i18n-html="domainsHelp" id="ipv6_domainsHelp" class="form-text text-muted"></small>
-                </div>
-              </div>
-            </div>
-          </div>
+			<div class="form-group row">
+				<label for="Ipv6Domains" class="col-sm-2 col-form-label">Domains</label>
+				<div class="col-sm-10">
+					<textarea class="form-control form" id="Ipv6Domains" name="Ipv6Domains" rows="3"
+						aria-describedby="ipv6_domainsHelp"></textarea>
+					<small data-i18n-html="domainsHelp" id="ipv6_domainsHelp" class="form-text text-muted"></small>
+				</div>
+			</div>
+		</div>
+	</div>
         </form>
 
         <form id="formGlobal">
@@ -383,34 +309,21 @@
     WebhookRequestBody: document.getElementById("WebhookRequestBody").value,
     WebhookHeaders: document.getElementById("WebhookHeaders").value,
   };
-  const defaultDnsConf = {
-    Name: "",
-    DnsID: "",
-    DnsName: "alidns",
-    DnsSecret: "",
-    DnsExtParam: "",
-    HttpInterface: "",
-    Ipv4Cmd: "",
-    Ipv4Domains: "",
-    Ipv4Enable: true,
-    Ipv4GetType: "url",
-    Ipv4NetInterface: "",
-    Ipv4Url: i18n({
-      "en": "https://api.ipify.org, https://ddns.oray.com/checkip, https://ip.3322.net, https://4.ipw.cn, https://v4.yinghualuo.cn/bejson",
-      "zh-cn": "https://myip.ipip.net, https://ddns.oray.com/checkip, https://ip.3322.net, https://4.ipw.cn, https://v4.yinghualuo.cn/bejson",
-    }),
-    Ipv6Cmd: "",
-    Ipv6Domains: "",
-    Ipv6Enable: true,
-    Ipv6GetType: "netInterface",
-    Ipv6NetInterface: "",
-    Ipv6Reg: "",
-    Ipv6Url: i18n({
-      "en": "https://api64.ipify.org, https://speed.neu6.edu.cn/getIP.php, https://v6.ident.me, https://6.ipw.cn, https://v6.yinghualuo.cn/bejson",
-      "zh-cn": "https://speed.neu6.edu.cn/getIP.php, https://v6.ident.me, https://6.ipw.cn, https://v6.yinghualuo.cn/bejson",
-    }),
-    TTL: "",
-  };
+const defaultDnsConf = {
+		Name: "",
+		DnsID: "",
+		DnsName: "alidns",
+		DnsSecret: "",
+		DnsExtParam: "",
+		HttpInterface: "",
+		Ipv4AliasSources: "",
+		Ipv4Domains: "",
+		Ipv4Enable: true,
+		Ipv6AliasSources: "",
+		Ipv6Domains: "",
+		Ipv6Enable: true,
+		TTL: "",
+	};
 </script>
 
 <!-- 表单相关 -->
@@ -501,25 +414,7 @@
         });
         break;
     }
-  });
-
-  // 处理切换IP获取方式时的UI变化
-  document.querySelectorAll('[name=Ipv4GetType], [name=Ipv6GetType]').forEach($input => {
-    $input.addEventListener('click', e => {
-      const $target = e.target;
-      const $group = $target.closest('.form-group');
-      const $card = $target.closest('.portlet__body');
-      $card.querySelectorAll('[data-visible]').forEach($el => {
-        $el.style.display = "none";
-      });
-      $card.querySelectorAll(`[data-visible=${$target.value}]`).forEach($el => {
-        $el.style.display = "";
-      });
-      // 修改label的for属性
-      const $curInput = $group.querySelector(`[data-visible=${$target.value}]`);
-      $group.querySelector('[data-i18n="Get IP method"]').setAttribute('for', $curInput.id);
-    });
-  });
+});
 </script>
 
 <!-- 配置项 -->
@@ -849,89 +744,6 @@
         duration: 5000,
       });
     }
-  });
-
-  // 测试正则表达式
-  const $ipv6Reg = document.getElementById("Ipv6Reg");
-  const ipv6RegTooltip = new Tooltip($ipv6Reg, ['manual', 'focus']);
-  // ipv6网卡信息
-  const $ipv6NetInterface = document.getElementById("Ipv6NetInterface");
-  const ipv6Dict = Array.from($ipv6NetInterface.options).reduce((acc, option) => {
-    const ipv6s = option.innerText.match(/([0-9a-fA-F:]{2,})/g);
-    if (ipv6s) {
-      acc[option.value] = ipv6s;
-    }
-    return acc;
-  }, {});
-  $ipv6Reg.addEventListener('input', e => {
-    // 为空时不处理
-    if (!$ipv6Reg.value) {
-      ipv6RegTooltip.hide();
-      return;
-    }
-    const curIpv6s = ipv6Dict[$ipv6NetInterface.value] || [];
-    // 指定第N个ipv6地址
-    const ipv6IndexMatch = $ipv6Reg.value.match(/^@(\d+)$/);
-    if (ipv6IndexMatch) {
-      const idx = parseInt(ipv6IndexMatch[1]) - 1;
-      if (idx < 0 || idx >= curIpv6s.length) {
-        ipv6RegTooltip.show({
-          title: i18n({
-            "en": "<span style='color: red'>Index out of range</span>",
-            "zh-cn": "<span style='color: red'>索引超出范围</span>",
-          }),
-          html: true,
-          placement: "top",
-        });
-        return;
-      }
-      ipv6RegTooltip.show({
-        title: i18n({
-          "en": `Matched: ${curIpv6s[idx]}`,
-          "zh-cn": `匹配到: ${curIpv6s[idx]}`,
-        }),
-        placement: "top",
-      });
-      return;
-    }
-
-    // 检测正则表达式是否合法
-    let reg;
-    try {
-      reg = new RegExp($ipv6Reg.value);
-    } catch (err) {
-      ipv6RegTooltip.show({
-        title: i18n({
-          "en": "<span style='color: red'>Invalid regular expression</span>",
-          "zh-cn": "<span style='color: red'>无效的正则表达式</span>",
-        }),
-        html: true,
-        placement: "top",
-      });
-      return;
-    }
-    // 显示正则表达式的匹配结果
-    for (const ipv6 of curIpv6s) {
-      if (reg.test(ipv6)) {
-        ipv6RegTooltip.show({
-          title: i18n({
-            "en": `Matched: ${ipv6}`,
-            "zh-cn": `匹配到: ${ipv6}`,
-          }),
-          placement: "top",
-        });
-        return;
-      }
-    }
-    ipv6RegTooltip.show({
-      title: i18n({
-        "en": "<span style='color: red'>No match found</span>",
-        "zh-cn": "<span style='color: red'>无匹配项</span>",
-      }),
-      html: true,
-      placement: "top",
-    });
-  });
-</script>
-
+});
+	</script>
 </html>

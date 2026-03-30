@@ -31,13 +31,11 @@ type GoDaddyDNS struct {
 }
 
 func (g *GoDaddyDNS) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	g.domains.Ipv4Cache = ipv4cache
-	g.domains.Ipv6Cache = ipv6cache
 	g.lastIpv4 = ipv4cache.Addr
 	g.lastIpv6 = ipv6cache.Addr
 
 	g.dns = dnsConf.DNS
-	g.domains.GetNewIp(dnsConf)
+	g.domains.InitFromConfig(dnsConf)
 	g.ttl = 600
 	if val, err := strconv.Atoi(dnsConf.TTL); err == nil {
 		g.ttl = val
@@ -86,11 +84,19 @@ func (g *GoDaddyDNS) updateDomainRecord(recordType string, ipAddr string, domain
 }
 
 func (g *GoDaddyDNS) AddUpdateDomainRecords() config.Domains {
-	if ipv4Addr, ipv4Domains := g.domains.GetNewIpResult("A"); ipv4Addr != "" {
-		g.updateDomainRecord("A", ipv4Addr, ipv4Domains)
+	var ipAddrs []string
+	var domains []*config.Domain
+	ipAddrs = g.domains.Ipv4Addrs
+	domains = g.domains.Ipv4Domains
+	if len(ipAddrs) > 0 {
+		ipAddr := ipAddrs[0]
+		g.updateDomainRecord("A", ipAddr, domains)
 	}
-	if ipv6Addr, ipv6Domains := g.domains.GetNewIpResult("AAAA"); ipv6Addr != "" {
-		g.updateDomainRecord("AAAA", ipv6Addr, ipv6Domains)
+	ipAddrs = g.domains.Ipv6Addrs
+	domains = g.domains.Ipv6Domains
+	if len(ipAddrs) > 0 {
+		ipAddr := ipAddrs[0]
+		g.updateDomainRecord("AAAA", ipAddr, domains)
 	}
 	return g.domains
 }
@@ -120,8 +126,5 @@ func (g *GoDaddyDNS) sendReq(method string, rType string, domain *config.Domain,
 
 // DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
 func (god *GoDaddyDNS) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
-	panic("GoDaddyDNS provider does not support delete operation yet for alias aggregation feature. " +
-		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
-		"or implement the delete operation for GoDaddyDNS provider. " +
-		"Refer to dns/alidns.go for implementation example.")
+	panic("GoDaddyDNS provider does not support alias mode. Use 'alidns' provider instead.")
 }

@@ -70,11 +70,9 @@ type TrafficRouteListZonesResp struct {
 	ZID int `json:"ZID"` // 域名ID
 }
 
-func (tr *TrafficRoute) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	tr.Domains.Ipv4Cache = ipv4cache
-	tr.Domains.Ipv6Cache = ipv6cache
+func (tr *TrafficRoute) Init(dnsConf *config.DnsConfig, _ *util.IpCache, _ *util.IpCache) {
 	tr.DNS = dnsConf.DNS
-	tr.Domains.GetNewIp(dnsConf)
+	tr.Domains.InitFromConfig(dnsConf)
 	if dnsConf.TTL == "" {
 		tr.TTL = 600
 	} else {
@@ -96,16 +94,33 @@ func (tr *TrafficRoute) AddUpdateDomainRecords() config.Domains {
 }
 
 func (tr *TrafficRoute) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := tr.Domains.GetNewIpResult(recordType)
-	if ipAddr == "" {
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = tr.Domains.Ipv4Addrs
+		domains = tr.Domains.Ipv4Domains
+	} else {
+		ipAddrs = tr.Domains.Ipv6Addrs
+		domains = tr.Domains.Ipv6Domains
+	}
+
+	if len(ipAddrs) == 0 {
 		return
 	}
 
 	for _, domain := range domains {
+		// 别名模式：智能更新 - 最小化变更，避免服务中断
+		util.Log("别名模式：智能更新域名 %s 的 %s 记录", domain, recordType)
+
+		// 步骤1：获取zone ID
 		resp := TrafficRouteListZonesResp{}
 		tr.getZID(domain, &resp)
+		if domain.UpdateStatus == config.UpdatedFailed {
+			continue
+		}
 		zoneID := resp.ZID
 
+		// 步骤2：获取现有记录
 		var recordResp TrafficRouteResp
 		tr.request(
 			"GET",
@@ -121,17 +136,66 @@ func (tr *TrafficRoute) addUpdateDomainRecords(recordType string) {
 			&recordResp,
 		)
 
-		found := false
+		// 步骤3：构建当前IP集合
+		currentIPs := make(map[string]string) // map[IP]RecordID
 		for _, record := range recordResp.Result.Records {
 			if record.Type == recordType && record.Host == domain.GetSubDomain() {
-				tr.modify(record, domain, ipAddr)
-				found = true
-				break
+				currentIPs[record.Value] = record.RecordID
+				util.Log("current value: %s", record.Value)
 			}
 		}
 
-		if !found {
-			tr.create(zoneID, domain, recordType, ipAddr)
+		// 步骤4：使用工具函数比较DNS记录
+		compareResult := util.CompareDNSRecords(currentIPs, ipAddrs)
+
+		// Log deletion plans
+		for _, recordID := range compareResult.ToDelete {
+			for ip, id := range currentIPs {
+				if id == recordID {
+					util.Log("  将删除多余记录: %s (RecordID: %s)", ip, recordID)
+					break
+				}
+			}
+		}
+
+		// Log creation plans
+		for _, ip := range compareResult.ToCreate {
+			util.Log("  将创建新记录: %s", ip)
+		}
+
+		// 步骤5：创建新记录
+		createdCount := 0
+		for _, ip := range compareResult.ToCreate {
+			tr.create(zoneID, domain, recordType, ip)
+			if domain.UpdateStatus == config.UpdatedSuccess {
+				createdCount++
+			}
+		}
+
+		// 步骤6：删除多余记录 (注意：TrafficRoute可能不支持删除，需要检查)
+		deletedCount := 0
+		for _, recordID := range compareResult.ToDelete {
+			// TrafficRoute delete not implemented yet, skip for now
+			util.Log("TrafficRoute暂不支持删除记录，跳过删除 RecordID: %s", recordID)
+		}
+
+		// 步骤7：计算保持不变的记录数
+		unchangedCount := 0
+		for ip := range compareResult.DesiredIPs {
+			if _, exists := currentIPs[ip]; exists {
+				unchangedCount++
+			}
+		}
+
+		// 步骤8：统一的状态更新和日志
+		if createdCount == len(compareResult.ToCreate) && len(compareResult.ToDelete) == deletedCount {
+			util.Log("✓ 别名模式更新完成: %s | 保持: %d 个 | 新增: %d 个 | 删除: %d 个",
+				domain, unchangedCount, createdCount, deletedCount)
+			if createdCount > 0 || deletedCount > 0 {
+				domain.UpdateStatus = config.UpdatedSuccess
+			} else {
+				domain.UpdateStatus = config.UpdatedFailed
+			}
 		}
 	}
 }

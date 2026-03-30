@@ -72,11 +72,9 @@ type GcoreInputResourceRecord struct {
 }
 
 // Init 初始化
-func (gc *Gcore) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	gc.Domains.Ipv4Cache = ipv4cache
-	gc.Domains.Ipv6Cache = ipv6cache
+func (gc *Gcore) Init(dnsConf *config.DnsConfig, _ *util.IpCache, _ *util.IpCache) {
 	gc.DNS = dnsConf.DNS
-	gc.Domains.GetNewIp(dnsConf)
+	gc.Domains.InitFromConfig(dnsConf)
 	if dnsConf.TTL == "" {
 		// 默认 120 秒（免费版最低值）
 		gc.TTL = 120
@@ -99,14 +97,25 @@ func (gc *Gcore) AddUpdateDomainRecords() config.Domains {
 }
 
 func (gc *Gcore) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := gc.Domains.GetNewIpResult(recordType)
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = gc.Domains.Ipv4Addrs
+		domains = gc.Domains.Ipv4Domains
+	} else {
+		ipAddrs = gc.Domains.Ipv6Addrs
+		domains = gc.Domains.Ipv6Domains
+	}
 
-	if ipAddr == "" {
+	if len(ipAddrs) == 0 {
 		return
 	}
 
 	for _, domain := range domains {
-		// get zone
+		// 别名模式：智能更新 - 最小化变更，避免服务中断
+		util.Log("别名模式：智能更新域名 %s 的 %s 记录", domain, recordType)
+
+		// 步骤1：获取zone信息
 		zoneInfo, err := gc.getZoneByDomain(domain)
 		if err != nil {
 			util.Log("查询域名信息发生异常! %s", err)
@@ -120,7 +129,7 @@ func (gc *Gcore) addUpdateDomainRecords(recordType string) {
 			continue
 		}
 
-		// 查询现有记录
+		// 步骤2：查询现有记录
 		existingRecord, err := gc.getRRSet(zoneInfo.Name, domain.GetSubDomain(), recordType)
 		if err != nil {
 			util.Log("查询域名信息发生异常! %s", err)
@@ -128,12 +137,69 @@ func (gc *Gcore) addUpdateDomainRecords(recordType string) {
 			continue
 		}
 
+		// 步骤3：构建当前IP集合 (Gcore uses RRSet with multiple ResourceRecords)
+		currentIPs := make(map[string]string) // map[IP]recordIdentifier
 		if existingRecord != nil {
-			// 更新现有记录
-			gc.updateRecord(zoneInfo.Name, domain, recordType, ipAddr, existingRecord)
+			for _, rr := range existingRecord.ResourceRecords {
+				if len(rr.Content) > 0 {
+					ip := fmt.Sprintf("%v", rr.Content[0])
+					// Gcore RRSet doesn't have individual record IDs per IP
+					// Use the IP itself as identifier for the comparison
+					currentIPs[ip] = ip
+					util.Log("current value: %s", ip)
+				}
+			}
+		}
+
+		// 步骤4：使用工具函数比较DNS记录
+		compareResult := util.CompareDNSRecords(currentIPs, ipAddrs)
+
+		// Log deletion plans
+		for _, ip := range compareResult.ToDelete {
+			util.Log("  将删除多余记录: %s", ip)
+		}
+
+		// Log creation plans
+		for _, ip := range compareResult.ToCreate {
+			util.Log("  将创建新记录: %s", ip)
+		}
+
+		// 步骤5：创建新记录（先创建，后删除，避免服务中断）
+		createdCount := 0
+		for _, ip := range compareResult.ToCreate {
+			if gc.createOrUpdateRecord(zoneInfo.Name, domain, recordType, ip, existingRecord, compareResult) {
+				createdCount++
+			}
+		}
+
+		// 步骤6：删除多余记录
+		deletedCount := 0
+		for _, ip := range compareResult.ToDelete {
+			if gc.deleteRecordIP(zoneInfo.Name, domain, recordType, ip, existingRecord, compareResult) {
+				deletedCount++
+			}
+		}
+
+		// 步骤7：计算保持不变的记录数
+		unchangedCount := 0
+		for ip := range compareResult.DesiredIPs {
+			if _, exists := currentIPs[ip]; exists {
+				unchangedCount++
+			}
+		}
+
+		// 总结更新结果
+		if len(compareResult.ToDelete) == 0 && len(compareResult.ToCreate) == 0 {
+			util.Log("域名 %s 的所有记录均无变化", domain)
+			domain.UpdateStatus = config.UpdatedNothing
 		} else {
-			// 创建新记录
-			gc.createRecord(zoneInfo.Name, domain, recordType, ipAddr)
+			util.Log("域名 %s 更新完成: 保持 %d 条, 新增 %d 条, 删除 %d 条",
+				domain, unchangedCount, createdCount, deletedCount)
+			if createdCount > 0 || deletedCount > 0 {
+				domain.UpdateStatus = config.UpdatedSuccess
+			} else {
+				domain.UpdateStatus = config.UpdatedFailed
+			}
 		}
 	}
 }
@@ -194,8 +260,8 @@ func (gc *Gcore) getRRSet(zoneName, recordName, recordType string) (*GcoreRRSet,
 	return nil, nil
 }
 
-// 创建新记录
-func (gc *Gcore) createRecord(zoneName string, domain *config.Domain, recordType string, ipAddr string) {
+// createOrUpdateRecord 创建或更新记录（添加新IP到RRSet）
+func (gc *Gcore) createOrUpdateRecord(zoneName string, domain *config.Domain, recordType string, newIP string, existingRecord *GcoreRRSet, compareResult *util.DNSCompareResult) bool {
 	recordName := domain.GetSubDomain()
 	if recordName == "" || recordName == "@" {
 		recordName = zoneName
@@ -203,42 +269,63 @@ func (gc *Gcore) createRecord(zoneName string, domain *config.Domain, recordType
 		recordName = recordName + "." + zoneName
 	}
 
+	// 构建新的ResourceRecords列表
+	var resourceRecords []GcoreInputResourceRecord
+
+	// 保留现有的IP（除了要删除的）
+	if existingRecord != nil {
+		for _, rr := range existingRecord.ResourceRecords {
+			if len(rr.Content) > 0 {
+				ip := fmt.Sprintf("%v", rr.Content[0])
+				// 只保留期望保留的IP
+				if compareResult.DesiredIPs[ip] && ip != newIP {
+					resourceRecords = append(resourceRecords, GcoreInputResourceRecord{
+						Content: []interface{}{ip},
+						Enabled: true,
+					})
+				}
+			}
+		}
+	}
+
+	// 添加新IP
+	resourceRecords = append(resourceRecords, GcoreInputResourceRecord{
+		Content: []interface{}{newIP},
+		Enabled: true,
+	})
+
 	inputRRSet := GcoreInputRRSet{
-		TTL: gc.TTL,
-		ResourceRecords: []GcoreInputResourceRecord{
-			{
-				Content: []interface{}{ipAddr},
-				Enabled: true,
-			},
-		},
+		TTL:             gc.TTL,
+		ResourceRecords: resourceRecords,
 	}
 
 	var result interface{}
+	method := "POST"
+	if existingRecord != nil {
+		method = "PUT"
+	}
+
 	err := gc.request(
-		"POST",
+		method,
 		fmt.Sprintf("%s/zones/%s/%s/%s", gcoreAPIEndpoint, zoneName, recordName, recordType),
 		inputRRSet,
 		&result,
 	)
 
 	if err != nil {
-		util.Log("新增域名解析 %s 失败! 异常信息: %s", domain, err)
+		util.Log("添加域名解析 %s 失败! IP: %s, 异常信息: %s", domain, newIP, err)
 		domain.UpdateStatus = config.UpdatedFailed
-		return
+		return false
 	}
 
-	util.Log("新增域名解析 %s 成功! IP: %s", domain, ipAddr)
-	domain.UpdateStatus = config.UpdatedSuccess
+	util.Log("添加域名解析 %s 成功! IP: %s", domain, newIP)
+	return true
 }
 
-// 更新现有记录
-func (gc *Gcore) updateRecord(zoneName string, domain *config.Domain, recordType string, ipAddr string, existingRecord *GcoreRRSet) {
-	// 检查IP是否相同
-	if len(existingRecord.ResourceRecords) > 0 && len(existingRecord.ResourceRecords[0].Content) > 0 {
-		if existingRecord.ResourceRecords[0].Content[0] == ipAddr {
-			util.Log("你的IP %s 没有变化, 域名 %s", ipAddr, domain)
-			return
-		}
+// deleteRecordIP 从RRSet中删除指定IP
+func (gc *Gcore) deleteRecordIP(zoneName string, domain *config.Domain, recordType string, deleteIP string, existingRecord *GcoreRRSet, compareResult *util.DNSCompareResult) bool {
+	if existingRecord == nil {
+		return false
 	}
 
 	recordName := domain.GetSubDomain()
@@ -248,14 +335,44 @@ func (gc *Gcore) updateRecord(zoneName string, domain *config.Domain, recordType
 		recordName = recordName + "." + zoneName
 	}
 
+	// 构建保留的ResourceRecords列表（排除要删除的IP）
+	var resourceRecords []GcoreInputResourceRecord
+	for _, rr := range existingRecord.ResourceRecords {
+		if len(rr.Content) > 0 {
+			ip := fmt.Sprintf("%v", rr.Content[0])
+			// 只保留期望保留的IP（排除要删除的）
+			if compareResult.DesiredIPs[ip] {
+				resourceRecords = append(resourceRecords, GcoreInputResourceRecord{
+					Content: []interface{}{ip},
+					Enabled: true,
+				})
+			}
+		}
+	}
+
+	// 如果没有剩余记录，删除整个RRSet
+	if len(resourceRecords) == 0 {
+		var result interface{}
+		err := gc.request(
+			"DELETE",
+			fmt.Sprintf("%s/zones/%s/%s/%s", gcoreAPIEndpoint, zoneName, recordName, recordType),
+			nil,
+			&result,
+		)
+
+		if err != nil {
+			util.Log("删除域名记录 %s 失败! IP: %s, 异常信息: %s", domain, deleteIP, err)
+			return false
+		}
+
+		util.Log("删除域名记录 %s 成功! IP: %s", domain, deleteIP)
+		return true
+	}
+
+	// 否则更新RRSet（移除指定IP）
 	inputRRSet := GcoreInputRRSet{
-		TTL: gc.TTL,
-		ResourceRecords: []GcoreInputResourceRecord{
-			{
-				Content: []interface{}{ipAddr},
-				Enabled: true,
-			},
-		},
+		TTL:             gc.TTL,
+		ResourceRecords: resourceRecords,
 	}
 
 	var result interface{}
@@ -267,13 +384,12 @@ func (gc *Gcore) updateRecord(zoneName string, domain *config.Domain, recordType
 	)
 
 	if err != nil {
-		util.Log("更新域名解析 %s 失败! 异常信息: %s", domain, err)
-		domain.UpdateStatus = config.UpdatedFailed
-		return
+		util.Log("删除域名记录 %s 失败! IP: %s, 异常信息: %s", domain, deleteIP, err)
+		return false
 	}
 
-	util.Log("更新域名解析 %s 成功! IP: %s", domain, ipAddr)
-	domain.UpdateStatus = config.UpdatedSuccess
+	util.Log("删除域名记录 %s 成功! IP: %s", domain, deleteIP)
+	return true
 }
 
 // request 统一请求接口
@@ -302,10 +418,30 @@ func (gc *Gcore) request(method string, url string, data interface{}, result int
 	return
 }
 
+// DeleteDomainRecord 删除单条域名记录
+func (gc *Gcore) DeleteDomainRecord(recordID string) error {
+	// recordID format: "zoneName/recordName/recordType"
+	parts := url.QueryEscape(recordID)
+	_ = parts // recordID contains "zoneName/recordName/recordType"
+
+	var result interface{}
+	err := gc.request(
+		"DELETE",
+		fmt.Sprintf("%s/zones/%s", gcoreAPIEndpoint, recordID),
+		nil,
+		&result,
+	)
+
+	if err != nil {
+		util.Log("删除域名记录失败! RecordId: %s, 异常信息: %s", recordID, err)
+		return err
+	}
+
+	util.Log("成功删除记录ID: %s", recordID)
+	return nil
+}
+
 // DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
 func (gco *Gcore) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
-	panic("Gcore provider does not support delete operation yet for alias aggregation feature. " +
-		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
-		"or implement the delete operation for Gcore provider. " +
-		"Refer to dns/alidns.go for implementation example.")
+	panic("Gcore provider does not support alias mode. Use 'alidns' provider instead.")
 }

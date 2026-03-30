@@ -53,11 +53,9 @@ type NameComRecordListResp struct {
 	NextPage   int                 `json:"nextPage"`
 }
 
-func (n *NameCom) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	n.Domains.Ipv4Cache = ipv4cache
-	n.Domains.Ipv6Cache = ipv6cache
+func (n *NameCom) Init(dnsConf *config.DnsConfig, _ *util.IpCache, _ *util.IpCache) {
 	n.DNS = dnsConf.DNS
-	n.Domains.GetNewIp(dnsConf)
+	n.Domains.InitFromConfig(dnsConf)
 	if dnsConf.TTL == "" {
 		n.TTL = "300"
 	} else {
@@ -74,12 +72,21 @@ func (n *NameCom) AddUpdateDomainRecords() (domains config.Domains) {
 }
 
 func (n *NameCom) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := n.Domains.GetNewIpResult(recordType)
-	if ipAddr == "" {
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = n.Domains.Ipv4Addrs
+		domains = n.Domains.Ipv4Domains
+	} else {
+		ipAddrs = n.Domains.Ipv6Addrs
+		domains = n.Domains.Ipv6Domains
+	}
+	if len(ipAddrs) == 0 {
 		return
 	}
 
 	for _, domain := range domains {
+		ipAddr := ipAddrs[0]
 		resp, err := n.getRecordList(domain)
 		if err != nil {
 			util.Log("查询域名信息发生异常! %s", err)
@@ -186,10 +193,37 @@ func (n *NameCom) request(action string, url string, data any, result any) (err 
 	return
 }
 
+// DeleteDomainRecord 删除单条域名记录
+func (n *NameCom) DeleteDomainRecord(recordID string) error {
+	// recordID format: "domain/id"
+	parts := strings.Split(recordID, "/")
+	if len(parts) != 2 {
+		err := fmt.Errorf("invalid recordID format: %s", recordID)
+		util.Log("删除域名记录失败! RecordId: %s, 异常信息: %s", recordID, err)
+		return err
+	}
+
+	domain := parts[0]
+	id := parts[1]
+
+	var result interface{}
+	err := n.request(
+		"DELETE",
+		fmt.Sprintf(listRecords+"/%s", domain, id),
+		nil,
+		&result,
+	)
+
+	if err != nil {
+		util.Log("删除域名记录失败! RecordId: %s, 异常信息: %s", recordID, err)
+		return err
+	}
+
+	util.Log("成功删除记录ID: %s", recordID)
+	return nil
+}
+
 // DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
 func (nam *NameCom) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
-	panic("NameCom provider does not support delete operation yet for alias aggregation feature. " +
-		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
-		"or implement the delete operation for NameCom provider. " +
-		"Refer to dns/alidns.go for implementation example.")
+	panic("NameCom provider does not support alias mode. Use 'alidns' provider instead.")
 }

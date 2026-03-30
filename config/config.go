@@ -2,15 +2,10 @@ package config
 
 import (
 	"errors"
-	"io"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"regexp"
-	"runtime"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/jeessy2/ddns-go/v6/util"
@@ -28,8 +23,7 @@ var Ipv6Reg = regexp.MustCompile(`((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|
 type DnsConfig struct {
 	Name string
 	Ipv4 struct {
-		Enable bool
-		// ONLY PROVIDE ALIAS remove others and other related logic
+		Enable       bool
 		AliasSources []string // 别名源域名列表，用于聚合多个域名的IP
 		Domains      []string
 	}
@@ -219,248 +213,14 @@ func (conf *Config) CheckPassword(newPassword string) (hashedPwd string, err err
 	return
 }
 
-func (conf *DnsConfig) getIpv4AddrFromInterface() string {
-	ipv4, _, err := GetNetInterface()
-	if err != nil {
-		util.Log("从网卡获得IPv4失败")
-		return ""
-	}
-
-	for _, netInterface := range ipv4 {
-		if netInterface.Name == conf.Ipv4.NetInterface && len(netInterface.Address) > 0 {
-			return netInterface.Address[0]
-		}
-	}
-
-	util.Log("从网卡中获得IPv4失败! 网卡名: %s", conf.Ipv4.NetInterface)
-	return ""
-}
-
-func (conf *DnsConfig) getIpv4AddrFromUrl() string {
-	client := util.CreateNoProxyHTTPClient("tcp4")
-	urls := strings.Split(conf.Ipv4.URL, ",")
-	for _, url := range urls {
-		url = strings.TrimSpace(url)
-		resp, err := client.Get(url)
-		if err != nil {
-			util.Log("通过接口获取IPv4失败! 接口地址: %s", url)
-			util.Log("异常信息: %s", err)
-			continue
-		}
-		defer resp.Body.Close()
-		lr := io.LimitReader(resp.Body, 1024000)
-		body, err := io.ReadAll(lr)
-		if err != nil {
-			util.Log("异常信息: %s", err)
-			continue
-		}
-		result := Ipv4Reg.FindString(string(body))
-		if result == "" {
-			util.Log("获取IPv4结果失败! 接口: %s ,返回值: %s", url, string(body))
-		}
-		return result
-	}
-	return ""
-}
-
-func (conf *DnsConfig) getAddrFromCmd(addrType string) string {
-	var cmd string
-	var comp *regexp.Regexp
-	if addrType == "IPv4" {
-		cmd = conf.Ipv4.Cmd
-		comp = Ipv4Reg
-	} else {
-		cmd = conf.Ipv6.Cmd
-		comp = Ipv6Reg
-	}
-	// cmd is empty
-	if cmd == "" {
-		return ""
-	}
-	// run cmd with proper shell
-	var execCmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		execCmd = exec.Command("powershell", "-Command", cmd)
-	} else {
-		// If Bash does not exist, use sh
-		_, err := exec.LookPath("bash")
-		if err != nil {
-			execCmd = exec.Command("sh", "-c", cmd)
-		} else {
-			execCmd = exec.Command("bash", "-c", cmd)
-		}
-	}
-	// run cmd
-	out, err := execCmd.CombinedOutput()
-	if err != nil {
-		util.Log("获取%s结果失败! 未能成功执行命令：%s, 错误：%q, 退出状态码：%s", addrType, execCmd.String(), out, err)
-		return ""
-	}
-	str := string(out)
-	// get result
-	result := comp.FindString(str)
-	if result == "" {
-		util.Log("获取%s结果失败! 命令: %s, 标准输出: %q", addrType, execCmd.String(), str)
-	}
-	return result
-}
-
-// symotion-prefix) GetIpv4Addr 获得IPv4地址（单个，用于向后兼容）
-func (conf *DnsConfig) GetIpv4Addr() string {
-	addrs := conf.GetIpv4Addrs()
-	if len(addrs) > 0 {
-		return addrs[0]
-	}
-	return ""
-}
-
-// GetIpv4Addrs 获得IPv4地址列表（支持别名聚合）
+// GetIpv4Addrs 获得IPv4地址列表（仅别名模式）
 func (conf *DnsConfig) GetIpv4Addrs() []string {
-	// 判断从哪里获取IP
-	switch conf.Ipv4.GetType {
-	case "netInterface":
-		// 从网卡获取 IP
-		addr := conf.getIpv4AddrFromInterface()
-		if addr != "" {
-			return []string{addr}
-		}
-		return nil
-	case "url":
-		// 从 URL 获取 IP
-		addr := conf.getIpv4AddrFromUrl()
-		if addr != "" {
-			return []string{addr}
-		}
-		return nil
-	case "cmd":
-		// 从命令行获取 IP
-		addr := conf.getAddrFromCmd("IPv4")
-		if addr != "" {
-			return []string{addr}
-		}
-		return nil
-	case "alias":
-		// 从别名源域名聚合IP
-		return conf.getIpv4AddrsFromAlias()
-	default:
-		log.Println("IPv4's get IP method is unknown")
-		return nil // unknown type
-	}
+	return conf.getIpv4AddrsFromAlias()
 }
 
-func (conf *DnsConfig) getIpv6AddrFromInterface() string {
-	_, ipv6, err := GetNetInterface()
-	if err != nil {
-		util.Log("从网卡获得IPv6失败")
-		return ""
-	}
-
-	for _, netInterface := range ipv6 {
-		if netInterface.Name == conf.Ipv6.NetInterface && len(netInterface.Address) > 0 {
-			if conf.Ipv6.Ipv6Reg != "" {
-				// 匹配第几个IPv6
-				if match, err := regexp.MatchString("@\\d", conf.Ipv6.Ipv6Reg); err == nil && match {
-					num, err := strconv.Atoi(conf.Ipv6.Ipv6Reg[1:])
-					if err == nil {
-						if num > 0 {
-							if num <= len(netInterface.Address) {
-								return netInterface.Address[num-1]
-							}
-							util.Log("未找到第 %d 个IPv6地址! 将使用第一个IPv6地址", num)
-							return netInterface.Address[0]
-						}
-						util.Log("IPv6匹配表达式 %s 不正确! 最小从1开始", conf.Ipv6.Ipv6Reg)
-						return ""
-					}
-				}
-				// 正则表达式匹配
-				util.Log("IPv6将使用正则表达式 %s 进行匹配", conf.Ipv6.Ipv6Reg)
-				for i := 0; i < len(netInterface.Address); i++ {
-					matched, err := regexp.MatchString(conf.Ipv6.Ipv6Reg, netInterface.Address[i])
-					if matched && err == nil {
-						util.Log("匹配成功! 匹配到地址: %s", netInterface.Address[i])
-						return netInterface.Address[i]
-					}
-				}
-				util.Log("没有匹配到任何一个IPv6地址, 将使用第一个地址")
-			}
-			return netInterface.Address[0]
-		}
-	}
-
-	util.Log("从网卡中获得IPv6失败! 网卡名: %s", conf.Ipv6.NetInterface)
-	return ""
-}
-
-func (conf *DnsConfig) getIpv6AddrFromUrl() string {
-	client := util.CreateNoProxyHTTPClient("tcp6")
-	urls := strings.Split(conf.Ipv6.URL, ",")
-	for _, url := range urls {
-		url = strings.TrimSpace(url)
-		resp, err := client.Get(url)
-		if err != nil {
-			util.Log("通过接口获取IPv6失败! 接口地址: %s", url)
-			util.Log("异常信息: %s", err)
-			continue
-		}
-
-		defer resp.Body.Close()
-		lr := io.LimitReader(resp.Body, 1024000)
-		body, err := io.ReadAll(lr)
-		if err != nil {
-			util.Log("异常信息: %s", err)
-			continue
-		}
-		result := Ipv6Reg.FindString(string(body))
-		if result == "" {
-			util.Log("获取IPv6结果失败! 接口: %s ,返回值: %s", url, result)
-		}
-		return result
-	}
-	return ""
-}
-
-// GetIpv6Addr 获得IPv6地址（单个，用于向后兼容）
-func (conf *DnsConfig) GetIpv6Addr() (result string) {
-	addrs := conf.GetIpv6Addrs()
-	if len(addrs) > 0 {
-		return addrs[0]
-	}
-	return ""
-}
-
-// GetIpv6Addrs 获得IPv6地址列表（支持别名聚合）
+// GetIpv6Addrs 获得IPv6地址列表（仅别名模式）
 func (conf *DnsConfig) GetIpv6Addrs() []string {
-	// 判断从哪里获取IP
-	switch conf.Ipv6.GetType {
-	case "netInterface":
-		// 从网卡获取 IP
-		addr := conf.getIpv6AddrFromInterface()
-		if addr != "" {
-			return []string{addr}
-		}
-		return nil
-	case "url":
-		// 从 URL 获取 IP
-		addr := conf.getIpv6AddrFromUrl()
-		if addr != "" {
-			return []string{addr}
-		}
-		return nil
-	case "cmd":
-		// 从命令行获取 IP
-		addr := conf.getAddrFromCmd("IPv6")
-		if addr != "" {
-			return []string{addr}
-		}
-		return nil
-	case "alias":
-		// 从别名源域名聚合IP
-		return conf.getIpv6AddrsFromAlias()
-	default:
-		log.Println("IPv6's get IP method is unknown")
-		return nil // unknown type
-	}
+	return conf.getIpv6AddrsFromAlias()
 }
 
 // getIpv4AddrsFromAlias 从别名源域名获取IPv4地址列表

@@ -43,12 +43,10 @@ type DynadotResp struct {
 
 // Init 初始化
 func (dynadot *Dynadot) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	dynadot.Domains.Ipv4Cache = ipv4cache
-	dynadot.Domains.Ipv6Cache = ipv6cache
 	dynadot.LastIpv4 = ipv4cache.Addr
 	dynadot.LastIpv6 = ipv6cache.Addr
 	dynadot.DNS = dnsConf.DNS
-	dynadot.Domains.GetNewIp(dnsConf)
+	dynadot.Domains.InitFromConfig(dnsConf)
 	if dnsConf.TTL == "" {
 		// 默认600s
 		dynadot.TTL = "600"
@@ -67,11 +65,21 @@ func (dynadot *Dynadot) AddUpdateDomainRecords() config.Domains {
 
 // addOrUpdateDomainRecords 添加或更新记录
 func (dynadot *Dynadot) addOrUpdateDomainRecords(recordType string) {
-	ipAddr, domains := dynadot.Domains.GetNewIpResult(recordType)
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = dynadot.Domains.Ipv4Addrs
+		domains = dynadot.Domains.Ipv4Domains
+	} else {
+		ipAddrs = dynadot.Domains.Ipv6Addrs
+		domains = dynadot.Domains.Ipv6Domains
+	}
 
-	if len(ipAddr) == 0 {
+	if len(ipAddrs) == 0 {
 		return
 	}
+
+	ipAddr := ipAddrs[0]
 
 	// 防止多次发送Webhook通知
 	if recordType == "A" {
@@ -189,8 +197,5 @@ func (dynadot *Dynadot) request(params url.Values, result interface{}) (err erro
 
 // DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
 func (dyn *Dynadot) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
-	panic("Dynadot provider does not support delete operation yet for alias aggregation feature. " +
-		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
-		"or implement the delete operation for Dynadot provider. " +
-		"Refer to dns/alidns.go for implementation example.")
+	panic("Dynadot provider does not support alias mode. Use 'alidns' provider instead.")
 }

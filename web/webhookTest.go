@@ -36,9 +36,9 @@ func WebhookTest(writer http.ResponseWriter, request *http.Request) {
 	domains[0].UpdateStatus = config.UpdatedSuccess
 
 	fakeDomains := &config.Domains{
-		Ipv4Addr:    "127.0.0.1",
+		Ipv4Addrs:   []string{"127.0.0.1"},
 		Ipv4Domains: domains,
-		Ipv6Addr:    "::1",
+		Ipv6Addrs:   []string{"::1"},
 		Ipv6Domains: domains,
 	}
 

@@ -174,11 +174,9 @@ type NSOneRecordRequest struct {
 	Zone    string              `json:"zone"`
 }
 
-func (nsone *NSOne) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	nsone.Domains.Ipv4Cache = ipv4cache
-	nsone.Domains.Ipv6Cache = ipv6cache
+func (nsone *NSOne) Init(dnsConf *config.DnsConfig, _ *util.IpCache, _ *util.IpCache) {
 	nsone.DNS = dnsConf.DNS
-	nsone.Domains.GetNewIp(dnsConf)
+	nsone.Domains.InitFromConfig(dnsConf)
 	if dnsConf.TTL == "" {
 		nsone.TTL = 60
 	} else {
@@ -200,13 +198,25 @@ func (nsone *NSOne) AddUpdateDomainRecords() config.Domains {
 }
 
 func (nsone *NSOne) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := nsone.Domains.GetNewIpResult(recordType)
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = nsone.Domains.Ipv4Addrs
+		domains = nsone.Domains.Ipv4Domains
+	} else {
+		ipAddrs = nsone.Domains.Ipv6Addrs
+		domains = nsone.Domains.Ipv6Domains
+	}
 
-	if ipAddr == "" {
+	if len(ipAddrs) == 0 {
 		return
 	}
 
 	for _, domain := range domains {
+		// 别名模式：智能更新 - NSOne 使用单记录多答案模式
+		util.Log("别名模式：智能更新域名 %s 的 %s 记录", domain, recordType)
+
+		// 步骤1：检查zone是否存在
 		zoneInfo, err := nsone.getZone(domain)
 		if err != nil {
 			util.Log("查询域名信息发生异常! %s", err)
@@ -220,6 +230,7 @@ func (nsone *NSOne) addUpdateDomainRecords(recordType string) {
 			continue
 		}
 
+		// 步骤2：获取现有记录
 		existingRecord, err := nsone.getRecord(domain, recordType)
 		if err != nil {
 			util.Log("查询域名信息发生异常! %s", err)
@@ -227,10 +238,60 @@ func (nsone *NSOne) addUpdateDomainRecords(recordType string) {
 			continue
 		}
 
-		if existingRecord != nil {
-			nsone.updateRecord(domain, recordType, ipAddr, existingRecord)
+		// 步骤3：构建当前IP集合
+		currentIPs := make(map[string]bool)
+		if existingRecord != nil && len(existingRecord.Answers) > 0 {
+			for _, answer := range existingRecord.Answers {
+				for _, ip := range answer.Answer {
+					currentIPs[ip] = true
+					util.Log("current value: %s", ip)
+				}
+			}
+		}
+
+		// 步骤4：比较并计算变更
+		desiredIPs := make(map[string]bool)
+		for _, ip := range ipAddrs {
+			desiredIPs[ip] = true
+		}
+
+		// 计算差异
+		toAdd := []string{}
+		for _, ip := range ipAddrs {
+			if !currentIPs[ip] {
+				toAdd = append(toAdd, ip)
+				util.Log("  将添加新IP: %s", ip)
+			}
+		}
+
+		toRemove := []string{}
+		for ip := range currentIPs {
+			if !desiredIPs[ip] {
+				toRemove = append(toRemove, ip)
+				util.Log("  将移除IP: %s", ip)
+			}
+		}
+
+		unchangedCount := 0
+		for ip := range currentIPs {
+			if desiredIPs[ip] {
+				unchangedCount++
+			}
+		}
+
+		// 步骤5：如果需要变更，更新记录
+		if len(toAdd) > 0 || len(toRemove) > 0 {
+			if existingRecord != nil {
+				nsone.updateRecordWithIPs(domain, recordType, ipAddrs, existingRecord)
+			} else {
+				nsone.createRecordWithIPs(domain, recordType, ipAddrs)
+			}
+
+			util.Log("✓ 别名模式更新完成: %s | 保持: %d 个 | 新增: %d 个 | 删除: %d 个",
+				domain, unchangedCount, len(toAdd), len(toRemove))
 		} else {
-			nsone.createRecord(domain, recordType, ipAddr)
+			util.Log("✓ IP地址未变化，无需更新: %s | 保持: %d 个", domain, unchangedCount)
+			domain.UpdateStatus = config.UpdatedSuccess
 		}
 	}
 }
@@ -346,6 +407,103 @@ func (nsone *NSOne) updateRecord(domain *config.Domain, recordType string, ipAdd
 
 	util.Log("更新域名解析 %s 成功! IP: %s", domain, ipAddr)
 	domain.UpdateStatus = config.UpdatedSuccess
+}
+
+// createRecordWithIPs 创建DNS记录（支持多个IP地址）
+func (nsone *NSOne) createRecordWithIPs(domain *config.Domain, recordType string, ipAddrs []string) {
+	recordName := domain.GetFullDomain()
+
+	// 将多个IP地址转换为NSOne的Answers格式
+	answers := make([]NSOneRecordAnswer, 0, len(ipAddrs))
+	for _, ip := range ipAddrs {
+		answers = append(answers, NSOneRecordAnswer{
+			Answer: []string{ip},
+		})
+	}
+
+	request := NSOneRecordRequest{
+		Answers: answers,
+		Domain:  recordName,
+		TTL:     nsone.TTL,
+		Type:    recordType,
+		Zone:    domain.DomainName,
+	}
+
+	var response NSOneRecordResponse
+	err := nsone.request(
+		"PUT",
+		fmt.Sprintf("%s/%s/%s/%s", nsoneAPIEndpoint, domain.DomainName, recordName, recordType),
+		request,
+		&response,
+	)
+
+	if err != nil {
+		util.Log("新增域名解析 %s 失败! 异常信息: %s", domain, err)
+		domain.UpdateStatus = config.UpdatedFailed
+		return
+	}
+
+	util.Log("新增域名解析 %s 成功! IPs: %v", domain, ipAddrs)
+	domain.UpdateStatus = config.UpdatedSuccess
+}
+
+// updateRecordWithIPs 更新DNS记录（支持多个IP地址）
+func (nsone *NSOne) updateRecordWithIPs(domain *config.Domain, recordType string, ipAddrs []string, existingRecord *NSOneRecordResponse) {
+	recordName := domain.GetFullDomain()
+
+	// 将多个IP地址转换为NSOne的Answers格式
+	answers := make([]NSOneRecordAnswer, 0, len(ipAddrs))
+	for _, ip := range ipAddrs {
+		answers = append(answers, NSOneRecordAnswer{
+			Answer: []string{ip},
+		})
+	}
+
+	request := NSOneRecordRequest{
+		Answers: answers,
+		Domain:  recordName,
+		TTL:     nsone.TTL,
+		Type:    recordType,
+		Zone:    domain.DomainName,
+	}
+
+	var response NSOneRecordResponse
+	err := nsone.request(
+		"POST",
+		fmt.Sprintf("%s/%s/%s/%s", nsoneAPIEndpoint, domain.DomainName, recordName, recordType),
+		request,
+		&response,
+	)
+
+	if err != nil {
+		util.Log("更新域名解析 %s 失败! 异常信息: %s", domain, err)
+		domain.UpdateStatus = config.UpdatedFailed
+		return
+	}
+
+	util.Log("更新域名解析 %s 成功! IPs: %v", domain, ipAddrs)
+	domain.UpdateStatus = config.UpdatedSuccess
+}
+
+// DeleteDomainRecord 删除DNS记录
+func (nsone *NSOne) DeleteDomainRecord(recordID string) error {
+	// recordID format: "zone/domain/recordType"
+	// e.g., "example.com/test.example.com/A"
+	var result interface{}
+	err := nsone.request(
+		"DELETE",
+		fmt.Sprintf("%s/%s", nsoneAPIEndpoint, recordID),
+		nil,
+		&result,
+	)
+
+	if err != nil {
+		util.Log("删除域名记录失败! RecordId: %s, 异常信息: %s", recordID, err)
+		return err
+	}
+
+	util.Log("成功删除记录ID: %s", recordID)
+	return nil
 }
 
 func (nsone *NSOne) request(method string, url string, data interface{}, result interface{}) (err error) {

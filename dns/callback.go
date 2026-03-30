@@ -20,17 +20,10 @@ type Callback struct {
 	httpClient *http.Client
 }
 
-// Init 初始化
-func (cb *Callback) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	cb.Domains.Ipv4Cache = ipv4cache
-	cb.Domains.Ipv6Cache = ipv6cache
-	cb.lastIpv4 = ipv4cache.Addr
-	cb.lastIpv6 = ipv6cache.Addr
-
+func (cb *Callback) Init(dnsConf *config.DnsConfig, _ *util.IpCache, _ *util.IpCache) {
 	cb.DNS = dnsConf.DNS
-	cb.Domains.GetNewIp(dnsConf)
+	cb.Domains.InitFromConfig(dnsConf)
 	if dnsConf.TTL == "" {
-		// 默认600
 		cb.TTL = "600"
 	} else {
 		cb.TTL = dnsConf.TTL
@@ -38,7 +31,6 @@ func (cb *Callback) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv
 	cb.httpClient = dnsConf.GetHTTPClient()
 }
 
-// AddUpdateDomainRecords 添加或更新IPv4/IPv6记录
 func (cb *Callback) AddUpdateDomainRecords() config.Domains {
 	cb.addUpdateDomainRecords("A")
 	cb.addUpdateDomainRecords("AAAA")
@@ -46,64 +38,60 @@ func (cb *Callback) AddUpdateDomainRecords() config.Domains {
 }
 
 func (cb *Callback) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := cb.Domains.GetNewIpResult(recordType)
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = cb.Domains.Ipv4Addrs
+		domains = cb.Domains.Ipv4Domains
+	} else {
+		ipAddrs = cb.Domains.Ipv6Addrs
+		domains = cb.Domains.Ipv6Domains
+	}
 
-	if ipAddr == "" {
+	if len(ipAddrs) == 0 {
 		return
 	}
 
-	// 防止多次发送Webhook通知
-	if recordType == "A" {
-		if cb.lastIpv4 == ipAddr {
-			util.Log("你的IPv4未变化, 未触发 %s 请求", "Callback")
-			return
-		}
-	} else {
-		if cb.lastIpv6 == ipAddr {
-			util.Log("你的IPv6未变化, 未触发 %s 请求", "Callback")
-			return
-		}
-	}
-
 	for _, domain := range domains {
-		method := "GET"
-		postPara := ""
-		contentType := "application/x-www-form-urlencoded"
-		if cb.DNS.Secret != "" {
-			method = "POST"
-			postPara = replacePara(cb.DNS.Secret, ipAddr, domain, recordType, cb.TTL)
-			if json.Valid([]byte(postPara)) {
-				contentType = "application/json"
+		for _, ipAddr := range ipAddrs {
+			method := "GET"
+			postPara := ""
+			contentType := "application/x-www-form-urlencoded"
+			if cb.DNS.Secret != "" {
+				method = "POST"
+				postPara = replacePara(cb.DNS.Secret, ipAddr, domain, recordType, cb.TTL)
+				if json.Valid([]byte(postPara)) {
+					contentType = "application/json"
+				}
 			}
-		}
-		requestURL := replacePara(cb.DNS.ID, ipAddr, domain, recordType, cb.TTL)
-		u, err := url.Parse(requestURL)
-		if err != nil {
-			util.Log("Callback的URL不正确")
-			return
-		}
-		req, err := http.NewRequest(method, u.String(), strings.NewReader(postPara))
-		if err != nil {
-			util.Log("异常信息: %s", err)
-			domain.UpdateStatus = config.UpdatedFailed
-			return
-		}
-		req.Header.Add("content-type", contentType)
+			requestURL := replacePara(cb.DNS.ID, ipAddr, domain, recordType, cb.TTL)
+			u, err := url.Parse(requestURL)
+			if err != nil {
+				util.Log("Callback的URL不正确")
+				return
+			}
+			req, err := http.NewRequest(method, u.String(), strings.NewReader(postPara))
+			if err != nil {
+				util.Log("异常信息: %s", err)
+				domain.UpdateStatus = config.UpdatedFailed
+				return
+			}
+			req.Header.Add("content-type", contentType)
 
-		clt := util.CreateHTTPClient()
-		resp, err := clt.Do(req)
-		body, err := util.GetHTTPResponseOrg(resp, err)
-		if err == nil {
-			util.Log("Callback调用成功, 域名: %s, IP: %s, 返回数据: %s", domain, ipAddr, string(body))
-			domain.UpdateStatus = config.UpdatedSuccess
-		} else {
-			util.Log("Callback调用失败, 异常信息: %s", err)
-			domain.UpdateStatus = config.UpdatedFailed
+			clt := util.CreateHTTPClient()
+			resp, err := clt.Do(req)
+			body, err := util.GetHTTPResponseOrg(resp, err)
+			if err == nil {
+				util.Log("Callback调用成功, 域名: %s, IP: %s, 返回数据: %s", domain, ipAddr, string(body))
+				domain.UpdateStatus = config.UpdatedSuccess
+			} else {
+				util.Log("Callback调用失败, 异常信息: %s", err)
+				domain.UpdateStatus = config.UpdatedFailed
+			}
 		}
 	}
 }
 
-// replacePara 替换参数
 func replacePara(orgPara, ipAddr string, domain *config.Domain, recordType string, ttl string) string {
 	// params 使用 map 以便添加更多参数
 	params := map[string]string{

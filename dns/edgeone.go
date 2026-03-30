@@ -76,11 +76,9 @@ type EdgeOneStatus struct {
 }
 
 // Init 初始化
-func (eo *EdgeOne) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	eo.Domains.Ipv4Cache = ipv4cache
-	eo.Domains.Ipv6Cache = ipv6cache
+func (eo *EdgeOne) Init(dnsConf *config.DnsConfig, _ *util.IpCache, _ *util.IpCache) {
 	eo.DNS = dnsConf.DNS
-	eo.Domains.GetNewIp(dnsConf)
+	eo.Domains.InitFromConfig(dnsConf)
 	if dnsConf.TTL == "" {
 		// 默认 600s
 		eo.TTL = 600
@@ -103,13 +101,22 @@ func (eo *EdgeOne) AddUpdateDomainRecords() config.Domains {
 }
 
 func (eo *EdgeOne) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := eo.Domains.GetNewIpResult(recordType)
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = eo.Domains.Ipv4Addrs
+		domains = eo.Domains.Ipv4Domains
+	} else {
+		ipAddrs = eo.Domains.Ipv6Addrs
+		domains = eo.Domains.Ipv6Domains
+	}
 
-	if ipAddr == "" {
+	if len(ipAddrs) == 0 {
 		return
 	}
 
 	for _, domain := range domains {
+		ipAddr := ipAddrs[0]
 		zoneResult, err := eo.getZone(domain.DomainName)
 		if err != nil || zoneResult.Response.TotalCount <= 0 || zoneResult.Response.Zones[0].ZoneName != domain.DomainName {
 			util.Log("查询域名信息发生异常! %s", err)

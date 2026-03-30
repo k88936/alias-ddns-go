@@ -54,11 +54,9 @@ type DnslaStatus struct {
 }
 
 // Init 初始化
-func (dnsla *Dnsla) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	dnsla.Domains.Ipv4Cache = ipv4cache
-	dnsla.Domains.Ipv6Cache = ipv6cache
+func (dnsla *Dnsla) Init(dnsConf *config.DnsConfig, _ *util.IpCache, _ *util.IpCache) {
 	dnsla.DNS = dnsConf.DNS
-	dnsla.Domains.GetNewIp(dnsConf)
+	dnsla.Domains.InitFromConfig(dnsConf)
 	if dnsConf.TTL == "" {
 		// 默认600s
 		dnsla.TTL = 600
@@ -77,11 +75,20 @@ func (dnsla *Dnsla) AddUpdateDomainRecords() config.Domains {
 }
 
 func (dnsla *Dnsla) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := dnsla.Domains.GetNewIpResult(recordType)
-	if ipAddr == "" {
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = dnsla.Domains.Ipv4Addrs
+		domains = dnsla.Domains.Ipv4Domains
+	} else {
+		ipAddrs = dnsla.Domains.Ipv6Addrs
+		domains = dnsla.Domains.Ipv6Domains
+	}
+	if len(ipAddrs) == 0 {
 		return
 	}
 	for _, domain := range domains {
+		ipAddr := ipAddrs[0]
 		resultByte, err := dnsla.getRecordList(domain, recordType)
 		if err != nil {
 			util.Log("查询域名信息发生异常! %s", err)
@@ -274,8 +281,5 @@ func (dnsla *Dnsla) getRecordList(domain *config.Domain, typ string) (result []b
 
 // DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
 func (dns *Dnsla) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
-	panic("Dnsla provider does not support delete operation yet for alias aggregation feature. " +
-		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
-		"or implement the delete operation for Dnsla provider. " +
-		"Refer to dns/alidns.go for implementation example.")
+	panic("Dnsla provider does not support alias mode. Use 'alidns' provider instead.")
 }

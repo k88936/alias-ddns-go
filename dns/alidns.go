@@ -43,13 +43,10 @@ type AlidnsResp struct {
 }
 
 // Init 初始化
-func (ali *Alidns) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	ali.Domains.Ipv4Cache = ipv4cache
-	ali.Domains.Ipv6Cache = ipv6cache
+func (ali *Alidns) Init(dnsConf *config.DnsConfig, _ *util.IpCache, _ *util.IpCache) {
 	ali.DNS = dnsConf.DNS
-	ali.Domains.GetNewIp(dnsConf)
+	ali.Domains.InitFromConfig(dnsConf)
 	if dnsConf.TTL == "" {
-		// 默认600s
 		ali.TTL = "600"
 	} else {
 		ali.TTL = dnsConf.TTL

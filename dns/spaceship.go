@@ -23,11 +23,8 @@ type Spaceship struct {
 	httpClient *http.Client
 }
 
-func (s *Spaceship) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	s.domains.Ipv4Cache = ipv4cache
-	s.domains.Ipv6Cache = ipv6cache
-	s.domains.GetNewIp(dnsConf)
-
+func (s *Spaceship) Init(dnsConf *config.DnsConfig, _ *util.IpCache, _ *util.IpCache) {
+	s.domains.InitFromConfig(dnsConf)
 	s.ttl = 600
 	if val, err := strconv.Atoi(dnsConf.TTL); err == nil {
 		s.ttl = val
@@ -41,12 +38,28 @@ func (s *Spaceship) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv
 }
 
 func (s *Spaceship) AddUpdateDomainRecords() (domains config.Domains) {
-	for _, recordType := range []string{"A", "AAAA"} {
-		ip, domains := s.domains.GetNewIpResult(recordType)
-		if ip == "" {
-			continue
-		}
-		for _, domain := range domains {
+	s.addUpdateDomainRecords("A")
+	s.addUpdateDomainRecords("AAAA")
+	return s.domains
+}
+
+func (s *Spaceship) addUpdateDomainRecords(recordType string) {
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = s.domains.Ipv4Addrs
+		domains = s.domains.Ipv4Domains
+	} else {
+		ipAddrs = s.domains.Ipv6Addrs
+		domains = s.domains.Ipv6Domains
+	}
+
+	if len(ipAddrs) == 0 {
+		return
+	}
+
+	for _, domain := range domains {
+		for _, ip := range ipAddrs {
 			hasUpdated, err := s.updateRecord(recordType, ip, domain)
 			if err != nil {
 				util.Log("更新域名解析 %s 失败! 异常信息: %s", domain, err)
@@ -61,7 +74,6 @@ func (s *Spaceship) AddUpdateDomainRecords() (domains config.Domains) {
 			}
 		}
 	}
-	return s.domains
 }
 
 func (s *Spaceship) request(domain *config.Domain, method string, query url.Values, payload []byte) (response []byte, err error) {
@@ -232,8 +244,5 @@ func (s *Spaceship) updateRecord(recordType string, ip string, domain *config.Do
 
 // DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
 func (spa *Spaceship) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
-	panic("Spaceship provider does not support delete operation yet for alias aggregation feature. " +
-		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
-		"or implement the delete operation for Spaceship provider. " +
-		"Refer to dns/alidns.go for implementation example.")
+	panic("Spaceship provider does not support alias mode. Use 'alidns' provider instead.")
 }

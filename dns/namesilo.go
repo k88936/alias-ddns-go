@@ -66,13 +66,11 @@ type ResourceRecord struct {
 
 // Init 初始化
 func (ns *NameSilo) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	ns.Domains.Ipv4Cache = ipv4cache
-	ns.Domains.Ipv6Cache = ipv6cache
 	ns.lastIpv4 = ipv4cache.Addr
 	ns.lastIpv6 = ipv6cache.Addr
 
 	ns.DNS = dnsConf.DNS
-	ns.Domains.GetNewIp(dnsConf)
+	ns.Domains.InitFromConfig(dnsConf)
 	ns.httpClient = dnsConf.GetHTTPClient()
 }
 
@@ -84,13 +82,22 @@ func (ns *NameSilo) AddUpdateDomainRecords() config.Domains {
 }
 
 func (ns *NameSilo) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := ns.Domains.GetNewIpResult(recordType)
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = ns.Domains.Ipv4Addrs
+		domains = ns.Domains.Ipv4Domains
+	} else {
+		ipAddrs = ns.Domains.Ipv6Addrs
+		domains = ns.Domains.Ipv6Domains
+	}
 
-	if ipAddr == "" {
+	if len(ipAddrs) == 0 {
 		return
 	}
 
 	for _, domain := range domains {
+		ipAddr := ipAddrs[0]
 
 		if domain.SubDomain == "" {
 			domain.SubDomain = "@"
@@ -205,8 +212,5 @@ func findResourceRecord(data []ResourceRecord, recordType, domain string) *Resou
 
 // DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
 func (nam *NameSilo) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
-	panic("NameSilo provider does not support delete operation yet for alias aggregation feature. " +
-		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
-		"or implement the delete operation for NameSilo provider. " +
-		"Refer to dns/alidns.go for implementation example.")
+	panic("NameSilo provider does not support alias mode. Use 'alidns' provider instead.")
 }

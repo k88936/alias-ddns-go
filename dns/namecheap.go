@@ -30,13 +30,11 @@ type NameCheapResp struct {
 
 // Init 初始化
 func (nc *NameCheap) Init(dnsConf *config.DnsConfig, ipv4cache *util.IpCache, ipv6cache *util.IpCache) {
-	nc.Domains.Ipv4Cache = ipv4cache
-	nc.Domains.Ipv6Cache = ipv6cache
 	nc.lastIpv4 = ipv4cache.Addr
 	nc.lastIpv6 = ipv6cache.Addr
 
 	nc.DNS = dnsConf.DNS
-	nc.Domains.GetNewIp(dnsConf)
+	nc.Domains.InitFromConfig(dnsConf)
 	nc.httpClient = dnsConf.GetHTTPClient()
 }
 
@@ -48,11 +46,21 @@ func (nc *NameCheap) AddUpdateDomainRecords() config.Domains {
 }
 
 func (nc *NameCheap) addUpdateDomainRecords(recordType string) {
-	ipAddr, domains := nc.Domains.GetNewIpResult(recordType)
+	var ipAddrs []string
+	var domains []*config.Domain
+	if recordType == "A" {
+		ipAddrs = nc.Domains.Ipv4Addrs
+		domains = nc.Domains.Ipv4Domains
+	} else {
+		ipAddrs = nc.Domains.Ipv6Addrs
+		domains = nc.Domains.Ipv6Domains
+	}
 
-	if ipAddr == "" {
+	if len(ipAddrs) == 0 {
 		return
 	}
+
+	ipAddr := ipAddrs[0]
 
 	// 防止多次发送Webhook通知
 	if recordType == "A" {
@@ -136,8 +144,5 @@ func (nc *NameCheap) request(result *NameCheapResp, ipAddr string, domain *confi
 
 // DeleteAllDomainRecords 删除域名的所有指定类型记录（未实现）
 func (nam *NameCheap) DeleteAllDomainRecords(domain *config.Domain, recordType string) error {
-	panic("NameCheap provider does not support delete operation yet for alias aggregation feature. " +
-		"Please use Aliyun DNS provider (dns.name: 'alidns') for alias aggregation, " +
-		"or implement the delete operation for NameCheap provider. " +
-		"Refer to dns/alidns.go for implementation example.")
+	panic("NameCheap provider does not support alias mode. Use 'alidns' provider instead.")
 }
