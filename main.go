@@ -1,13 +1,9 @@
 package main
 
 import (
-	"embed"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
-	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,7 +16,6 @@ import (
 	"github.com/jeessy2/ddns-go/v6/util"
 	"github.com/jeessy2/ddns-go/v6/util/osutil"
 	"github.com/jeessy2/ddns-go/v6/util/update"
-	"github.com/jeessy2/ddns-go/v6/web"
 	"github.com/kardianos/service"
 )
 
@@ -46,9 +41,6 @@ var serviceType = flag.String("s", "", "Service management (install|uninstall|re
 // 配置文件路径
 var configFilePath = flag.String("c", util.GetConfigFilePathDefault(), "Custom configuration file path")
 
-// Web 服务
-var noWebService = flag.Bool("noweb", false, "No web service")
-
 // 跳过验证证书
 var skipVerify = flag.Bool("skipVerify", false, "Skip certificate verification")
 
@@ -60,12 +52,6 @@ var newPassword = flag.String("resetPassword", "", "Reset password to the one en
 
 // 后台运行
 var daemonize = flag.Bool("d", false, "Run in background (daemon/detached)")
-
-//go:embed static
-var staticEmbeddedFiles embed.FS
-
-//go:embed favicon.ico
-var faviconEmbeddedFile embed.FS
 
 // version
 var version = "DEV"
@@ -92,12 +78,6 @@ func main() {
 	if runtime.GOOS == "android" {
 		util.FixTimezone()
 	}
-	// 检查监听地址
-	if _, err := net.ResolveTCPAddr("tcp", *listen); err != nil {
-		log.Fatalf("Parse listen address failed! Exception: %s", err)
-	}
-	// 设置版本号
-	os.Setenv(web.VersionEnv, version)
 	// 设置配置文件路径
 	if *configFilePath != "" {
 		absPath, _ := filepath.Abs(*configFilePath)
@@ -159,18 +139,6 @@ func run() {
 	// 初始化语言
 	util.InitLogLang(conf.Lang)
 
-	if !*noWebService {
-		go func() {
-			// 启动web服务
-			err := runWebServer()
-			if err != nil {
-				log.Println(err)
-				time.Sleep(time.Minute)
-				os.Exit(1)
-			}
-		}()
-	}
-
 	// 初始化备用DNS
 	util.InitBackupDNS(*customDNS, conf.Lang)
 
@@ -179,38 +147,6 @@ func run() {
 
 	// 定时运行
 	dns.RunTimer(time.Duration(*every) * time.Second)
-}
-
-func staticFsFunc(writer http.ResponseWriter, request *http.Request) {
-	http.FileServer(http.FS(staticEmbeddedFiles)).ServeHTTP(writer, request)
-}
-
-func faviconFsFunc(writer http.ResponseWriter, request *http.Request) {
-	http.FileServer(http.FS(faviconEmbeddedFile)).ServeHTTP(writer, request)
-}
-
-func runWebServer() error {
-	// 启动静态文件服务
-	http.HandleFunc("/static/", web.AuthAssert(staticFsFunc))
-	http.HandleFunc("/favicon.ico", web.AuthAssert(faviconFsFunc))
-	http.HandleFunc("/login", web.AuthAssert(web.Login))
-	http.HandleFunc("/loginFunc", web.AuthAssert(web.LoginFunc))
-
-	http.HandleFunc("/", web.Auth(web.Writing))
-	http.HandleFunc("/save", web.Auth(web.Save))
-	http.HandleFunc("/logs", web.Auth(web.Logs))
-	http.HandleFunc("/clearLog", web.Auth(web.ClearLog))
-	http.HandleFunc("/webhookTest", web.Auth(web.WebhookTest))
-	http.HandleFunc("/logout", web.Auth(web.Logout))
-
-	util.Log("监听 %s", *listen)
-
-	l, err := net.Listen("tcp", *listen)
-	if err != nil {
-		return errors.New(util.LogStr("监听端口发生异常, 请检查端口是否被占用! %s", err))
-	}
-
-	return http.Serve(l, nil)
 }
 
 // 以守护/分离进程方式运行（Unix 使用 setsid，Windows 使用 DETACHED_PROCESS）
@@ -284,10 +220,6 @@ func getService() service.Service {
 		Arguments:    []string{"-l", *listen, "-f", strconv.Itoa(*every), "-cacheTimes", strconv.Itoa(*ipCacheTimes), "-c", *configFilePath},
 		Dependencies: depends,
 		Option:       options,
-	}
-
-	if *noWebService {
-		svcConfig.Arguments = append(svcConfig.Arguments, "-noweb")
 	}
 
 	if *skipVerify {

@@ -23,14 +23,14 @@ var Ipv6Reg = regexp.MustCompile(`((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|
 type DnsConfig struct {
 	Name string
 	Ipv4 struct {
-		Enable       bool
-		AliasSources []string // 别名源域名列表，用于聚合多个域名的IP
-		Domains      []string
+		Enable  bool
+		Sources []string // 别名源域名列表，用于聚合多个域名的IP
+		Domains []string
 	}
 	Ipv6 struct {
-		Enable       bool
-		AliasSources []string // 别名源域名列表，用于聚合多个域名的IP
-		Domains      []string
+		Enable  bool
+		Sources []string // 别名源域名列表，用于聚合多个域名的IP
+		Domains []string
 	}
 	DNS DNS
 	TTL string
@@ -225,13 +225,13 @@ func (conf *DnsConfig) GetIpv6Addrs() []string {
 
 // getIpv4AddrsFromAlias 从别名源域名获取IPv4地址列表
 func (conf *DnsConfig) getIpv4AddrsFromAlias() []string {
-	if len(conf.Ipv4.AliasSources) == 0 {
+	if len(conf.Ipv4.Sources) == 0 {
 		util.Log("别名模式下未配置源域名列表")
 		return nil
 	}
 
-	util.Log("别名模式: 开始聚合 %d 个源域名的IPv4地址", len(conf.Ipv4.AliasSources))
-	addrs, err := util.ResolveAliasSourceIPs(conf.Ipv4.AliasSources, "ipv4")
+	util.Log("别名模式: 开始聚合 %d 个源域名的IPv4地址", len(conf.Ipv4.Sources))
+	addrs, err := util.ResolveAliasSourceIPs(conf.Ipv4.Sources, "ipv4")
 	if err != nil {
 		util.Log("别名聚合失败: %v", err)
 		return nil
@@ -242,13 +242,13 @@ func (conf *DnsConfig) getIpv4AddrsFromAlias() []string {
 
 // getIpv6AddrsFromAlias 从别名源域名获取IPv6地址列表
 func (conf *DnsConfig) getIpv6AddrsFromAlias() []string {
-	if len(conf.Ipv6.AliasSources) == 0 {
+	if len(conf.Ipv6.Sources) == 0 {
 		util.Log("别名模式下未配置源域名列表")
 		return nil
 	}
 
-	util.Log("别名模式: 开始聚合 %d 个源域名的IPv6地址", len(conf.Ipv6.AliasSources))
-	addrs, err := util.ResolveAliasSourceIPs(conf.Ipv6.AliasSources, "ipv6")
+	util.Log("别名模式: 开始聚合 %d 个源域名的IPv6地址", len(conf.Ipv6.Sources))
+	addrs, err := util.ResolveAliasSourceIPs(conf.Ipv6.Sources, "ipv6")
 	if err != nil {
 		util.Log("别名聚合失败: %v", err)
 		return nil
