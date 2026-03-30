@@ -208,7 +208,7 @@ func (dnspod *Dnspod) DeleteDomainRecord(recordID string) error {
 	}
 
 	util.Log("删除记录失败! RecordID: %s, 异常信息: %s", recordID, status.Status.Message)
-	return fmt.Errorf(status.Status.Message)
+	return fmt.Errorf("%s", status.Status.Message)
 }
 
 // request sends a POST request to the given API with the given values.

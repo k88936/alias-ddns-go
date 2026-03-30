@@ -201,7 +201,7 @@ func (eranet *Eranet) DeleteDomainRecord(recordID string) error {
 	}
 	if result.Error != "" {
 		util.Log("删除域名记录 %s 失败! 异常信息: %s", recordID, result.Error)
-		return fmt.Errorf(result.Error)
+		return fmt.Errorf("%s", result.Error)
 	}
 	util.Log("删除域名记录 %s 成功!", recordID)
 	return nil
